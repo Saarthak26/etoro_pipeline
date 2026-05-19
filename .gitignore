@@ -1,0 +1,14 @@
+# Credentials — never commit these
+*.json
+!positions.json
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env

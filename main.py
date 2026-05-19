@@ -8,6 +8,8 @@ Commands:
     python main.py query NVDA            — Print last 10 candles for a ticker
     python main.py summary               — Print the latest close for every ticker
     python main.py scheduler             — Start the background daily refresh daemon
+    python main.py setup-sheets          — One-time Google Sheets setup wizard
+    python main.py export                — Manually push all data to Google Sheets now
 
 Set your API keys in environment variables before running:
     export ETORO_API_KEY="your_public_key"
@@ -51,6 +53,14 @@ def main():
     elif command == "scheduler":
         from scheduler import run_scheduler
         run_scheduler()
+
+    elif command == "setup-sheets":
+        from sheets_exporter import setup_sheets
+        setup_sheets()
+
+    elif command == "export":
+        from sheets_exporter import run_export
+        run_export(trigger="manual")
 
     else:
         print(__doc__)

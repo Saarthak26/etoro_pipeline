@@ -16,16 +16,35 @@ import sys
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from config import SCHEDULER_HOUR, SCHEDULER_MINUTE, SCHEDULER_TZ
+from config import (
+    SCHEDULER_HOUR, SCHEDULER_MINUTE, SCHEDULER_TZ,
+    SHEETS_OPEN_HOUR, SHEETS_OPEN_MINUTE,
+    SHEETS_CLOSE_HOUR, SHEETS_CLOSE_MINUTE,
+    SHEETS_MARKET_TZ,
+    GOOGLE_SHEETS_CREDENTIALS_PATH, GOOGLE_SHEET_ID,
+)
 from pipeline import refresh
 
 log = logging.getLogger(__name__)
+
+
+def _sheets_export(trigger: str):
+    """Wrapper so the scheduler can pass a trigger label to the exporter."""
+    if not GOOGLE_SHEET_ID:
+        log.warning("GOOGLE_SHEET_ID is not set — skipping Sheets export. Run: python main.py setup-sheets")
+        return
+    try:
+        from sheets_exporter import run_export
+        run_export(trigger=trigger)
+    except Exception:
+        log.exception("Google Sheets export failed (trigger=%s)", trigger)
 
 
 def run_scheduler():
     """Start the blocking APScheduler process."""
     scheduler = BlockingScheduler(timezone=SCHEDULER_TZ)
 
+    # ── 1. Daily OHLCV data refresh (23:00 Berlin, after US market close) ─────
     scheduler.add_job(
         func=refresh,
         trigger=CronTrigger(
@@ -36,7 +55,37 @@ def run_scheduler():
         id="daily_market_refresh",
         name="eToro daily OHLCV refresh",
         replace_existing=True,
-        misfire_grace_time=3600,   # If the job fires late by up to 1 hour, still run it
+        misfire_grace_time=3600,
+    )
+
+    # ── 2. Google Sheets export at market open (09:30 New York, weekdays) ─────
+    scheduler.add_job(
+        func=lambda: _sheets_export("market_open"),
+        trigger=CronTrigger(
+            day_of_week="mon-fri",
+            hour=SHEETS_OPEN_HOUR,
+            minute=SHEETS_OPEN_MINUTE,
+            timezone=SHEETS_MARKET_TZ,
+        ),
+        id="sheets_export_open",
+        name="Google Sheets export — market open",
+        replace_existing=True,
+        misfire_grace_time=1800,
+    )
+
+    # ── 3. Google Sheets export at market close (16:00 New York, weekdays) ────
+    scheduler.add_job(
+        func=lambda: _sheets_export("market_close"),
+        trigger=CronTrigger(
+            day_of_week="mon-fri",
+            hour=SHEETS_CLOSE_HOUR,
+            minute=SHEETS_CLOSE_MINUTE,
+            timezone=SHEETS_MARKET_TZ,
+        ),
+        id="sheets_export_close",
+        name="Google Sheets export — market close",
+        replace_existing=True,
+        misfire_grace_time=1800,
     )
 
     # ── Graceful shutdown on SIGTERM / Ctrl+C ─────────────────────────────────
@@ -49,9 +98,14 @@ def run_scheduler():
     signal.signal(signal.SIGINT,  shutdown)
 
     log.info(
-        f"Scheduler started. Daily refresh runs at "
-        f"{SCHEDULER_HOUR:02d}:{SCHEDULER_MINUTE:02d} {SCHEDULER_TZ}. "
-        f"Press Ctrl+C to stop."
+        "Scheduler started.\n"
+        "  • OHLCV refresh   : %02d:%02d %s (daily)\n"
+        "  • Sheets open     : %02d:%02d %s (Mon–Fri)\n"
+        "  • Sheets close    : %02d:%02d %s (Mon–Fri)\n"
+        "Press Ctrl+C to stop.",
+        SCHEDULER_HOUR, SCHEDULER_MINUTE, SCHEDULER_TZ,
+        SHEETS_OPEN_HOUR, SHEETS_OPEN_MINUTE, SHEETS_MARKET_TZ,
+        SHEETS_CLOSE_HOUR, SHEETS_CLOSE_MINUTE, SHEETS_MARKET_TZ,
     )
 
     scheduler.start()

@@ -1,0 +1,27 @@
+[
+  { "ticker": "NVDA", "direction": "BUY", "units": 2, "open_price": 227.05, "open_date": "15-5-2026", "stop_loss": null, "take_profit": 2496.8 },
+  { "ticker": "NVDA", "direction": "BUY", "units": 1, "open_price": 201.07, "open_date": "06-5-2026", "stop_loss": null, "take_profit": 2496.8 },
+  { "ticker": "NVDA", "direction": "BUY", "units": 1, "open_price": 200.87, "open_date": "06-5-2026", "stop_loss": null, "take_profit": 2496.8 },
+  { "ticker": "NVDA", "direction": "BUY", "units": 1, "open_price": 212.00, "open_date": "28-4-2026", "stop_loss": null, "take_profit": 2496.8 },
+  { "ticker": "NVDA", "direction": "BUY", "units": 2.00147, "open_price": 217.84, "open_date": "28-4-2026", "stop_loss": null, "take_profit": 2496.8 },
+  { "ticker": "NVDA", "direction": "BUY", "units": 1, "open_price": 176.95, "open_date": "06-4-2026", "stop_loss": null, "take_profit": 2496.8 }, 
+  { "ticker": "AMD",  "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "ANET", "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "AMZN", "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "MU",   "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "ASTS", "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "QBTS", "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "RKLB", "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "LASR", "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "BW",   "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "NVTS", "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "NBIS", "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "WMT",  "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "DVN",  "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "JPM",  "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "SHOP", "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "MSFT", "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "GOOG", "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null },
+  { "ticker": "FORM", "direction": "BUY", "units": 0, "open_price": 0.0, "open_date": "", "stop_loss": null, "take_profit": null }
+]
+
