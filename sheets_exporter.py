@@ -820,9 +820,7 @@ def run_export(trigger: str = "scheduled"):
     spreadsheet = _open_spreadsheet(client)
     _ensure_tabs(spreadsheet)
 
-    # ── 1. Sync positions: sheet → positions.json (sheet is source of truth) ──
-    _sync_positions_from_sheet(spreadsheet)
-
+    # positions.json is written by sync_positions() from the live eToro API
     portfolio = {r["ticker"]: r for r in get_portfolio_summary()}
     positions = _load_positions()
     log.info("Active positions: %s", {t: len(v) for t, v in positions.items()})
