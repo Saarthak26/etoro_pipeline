@@ -23,9 +23,18 @@ from config import (
     SHEETS_MARKET_TZ,
     GOOGLE_SHEETS_CREDENTIALS_PATH, GOOGLE_SHEET_ID,
 )
-from pipeline import refresh
+from pipeline import refresh, sync_positions
 
 log = logging.getLogger(__name__)
+
+
+def _daily_refresh():
+    """Sync live positions then refresh OHLCV data."""
+    try:
+        sync_positions()
+    except Exception:
+        log.exception("Position sync failed — continuing with OHLCV refresh")
+    refresh()
 
 
 def _sheets_export(trigger: str):
@@ -44,16 +53,16 @@ def run_scheduler():
     """Start the blocking APScheduler process."""
     scheduler = BlockingScheduler(timezone=SCHEDULER_TZ)
 
-    # ── 1. Daily OHLCV data refresh (23:00 Berlin, after US market close) ─────
+    # ── 1. Position sync + OHLCV refresh (23:00 Berlin, after US market close) ──
     scheduler.add_job(
-        func=refresh,
+        func=_daily_refresh,
         trigger=CronTrigger(
             hour=SCHEDULER_HOUR,
             minute=SCHEDULER_MINUTE,
             timezone=SCHEDULER_TZ,
         ),
         id="daily_market_refresh",
-        name="eToro daily OHLCV refresh",
+        name="eToro position sync + OHLCV refresh",
         replace_existing=True,
         misfire_grace_time=3600,
     )
@@ -99,9 +108,9 @@ def run_scheduler():
 
     log.info(
         "Scheduler started.\n"
-        "  • OHLCV refresh   : %02d:%02d %s (daily)\n"
-        "  • Sheets open     : %02d:%02d %s (Mon–Fri)\n"
-        "  • Sheets close    : %02d:%02d %s (Mon–Fri)\n"
+        "  • Position sync + OHLCV refresh : %02d:%02d %s (daily)\n"
+        "  • Sheets open                   : %02d:%02d %s (Mon–Fri)\n"
+        "  • Sheets close                  : %02d:%02d %s (Mon–Fri)\n"
         "Press Ctrl+C to stop.",
         SCHEDULER_HOUR, SCHEDULER_MINUTE, SCHEDULER_TZ,
         SHEETS_OPEN_HOUR, SHEETS_OPEN_MINUTE, SHEETS_MARKET_TZ,

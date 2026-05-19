@@ -207,6 +207,33 @@ class EToroClient:
 
         return candle_groups[0].get("candles", [])
 
+    def get_portfolio(self) -> list[dict]:
+        """
+        Fetch all open positions from the authenticated portfolio endpoint.
+
+        Returns:
+            List of position dicts from clientPortfolio.positions.
+        """
+        log.info("Fetching live portfolio positions...")
+        result = self.get("/trading/info/portfolio")
+        return result.get("clientPortfolio", {}).get("positions", [])
+
+    def get_instrument_by_id(self, instrument_id: int) -> dict | None:
+        """
+        Look up an instrument by its numeric ID using the cached instruments list.
+
+        Useful for resolving IDs returned by the portfolio endpoint that are not
+        yet in the local SQLite DB.
+        """
+        if self._instruments_cache is None:
+            result = self.get("/market-data/instruments")
+            self._instruments_cache = result.get("instrumentDisplayDatas", [])
+
+        for inst in self._instruments_cache:
+            if inst.get("instrumentID") == instrument_id or inst.get("internalInstrumentId") == instrument_id:
+                return inst
+        return None
+
     def get_current_rates(self, instrument_ids: list[int]) -> list[dict]:
         """
         Fetch live bid/ask/execution prices for a list of instruments.

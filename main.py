@@ -5,6 +5,7 @@ Commands:
     python main.py backfill              — First-time full history fetch for all tickers
     python main.py refresh               — Incremental daily refresh (stale tickers only)
     python main.py refresh NVDA AMD      — Refresh specific tickers only
+    python main.py sync-positions        — Pull live positions from eToro and rewrite positions.json
     python main.py query NVDA            — Print last 10 candles for a ticker
     python main.py summary               — Print the latest close for every ticker
     python main.py scheduler             — Start the background daily refresh daemon
@@ -17,6 +18,8 @@ Set your API keys in environment variables before running:
 
 Or edit config.py directly (not recommended for production).
 """
+
+from __future__ import annotations
 
 import sys
 import logging
@@ -43,6 +46,10 @@ def main():
         from pipeline import refresh
         tickers = args[1:] or None
         refresh(tickers)
+
+    elif command == "sync-positions":
+        from pipeline import sync_positions
+        sync_positions()
 
     elif command == "query":
         _cmd_query(args[1:])

@@ -108,6 +108,16 @@ def get_all_instruments() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_ticker_by_instrument_id(instrument_id: int) -> str | None:
+    """Return the ticker for a given eToro instrument ID, or None if not cached."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT ticker FROM instruments WHERE instrument_id = ?",
+            (instrument_id,),
+        ).fetchone()
+    return row["ticker"] if row else None
+
+
 # ── Daily candles table ───────────────────────────────────────────────────────
 
 def upsert_candles(ticker: str, instrument_id: int, candles: list[dict]):

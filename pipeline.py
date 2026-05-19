@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 pipeline.py — Orchestrates the full data fetch cycle.
 
@@ -13,7 +15,9 @@ Two modes:
 Both functions are safe to run multiple times (idempotent).
 """
 
+import json
 import logging
+from datetime import datetime, timezone
 
 from config import (
     WATCHLIST_TICKERS,
@@ -21,6 +25,7 @@ from config import (
     REFRESH_CANDLES_COUNT,
     CACHE_TTL_HOURS,
     DAILY_INTERVAL,
+    POSITIONS_PATH,
 )
 from etoro_client import EToroClient, EToroAPIError
 from database import (
@@ -29,11 +34,121 @@ from database import (
     upsert_candles,
     update_fetch_log,
     get_instrument_id,
+    get_ticker_by_instrument_id,
     is_stale,
     get_portfolio_summary,
 )
 
 log = logging.getLogger(__name__)
+
+
+def sync_positions():
+    """
+    Pull live open positions from the eToro portfolio API and rewrite positions.json.
+
+    Each open position becomes one entry (preserving per-lot granularity).
+    Watchlist tickers with no open positions are kept as zero-unit placeholders
+    so they still appear in the sheets export.
+
+    Safe to run repeatedly — positions.json is fully overwritten each time.
+    """
+    client = EToroClient()
+    initialise_db()
+
+    log.info("Syncing positions from eToro portfolio API...")
+    raw_positions = client.get_portfolio()
+    log.info(f"Received {len(raw_positions)} open positions from eToro")
+
+    # Build instrumentID → ticker using the local DB, with API fallback for unknowns
+    id_to_ticker: dict[int, str] = {}
+    for pos in raw_positions:
+        iid = pos["instrumentID"]
+        if iid in id_to_ticker:
+            continue
+        ticker = get_ticker_by_instrument_id(iid)
+        if ticker is None:
+            ticker = _resolve_unknown_instrument(client, iid)
+        if ticker:
+            id_to_ticker[iid] = ticker
+        else:
+            log.warning(f"Could not resolve ticker for instrumentID {iid} — skipping")
+
+    # Build the new positions list
+    active_tickers: set[str] = set()
+    entries: list[dict] = []
+
+    for pos in raw_positions:
+        iid    = pos["instrumentID"]
+        ticker = id_to_ticker.get(iid)
+        if not ticker:
+            continue
+
+        active_tickers.add(ticker)
+        open_dt   = _parse_open_date(pos.get("openDateTime", ""))
+        no_sl     = pos.get("isNoStopLoss", True)
+        no_tp     = pos.get("isNoTakeProfit", True)
+
+        entries.append({
+            "ticker":      ticker,
+            "direction":   "BUY" if pos.get("isBuy", True) else "SELL",
+            "units":       pos["units"],
+            "open_price":  pos["openRate"],
+            "open_date":   open_dt,
+            "stop_loss":   None if no_sl else pos.get("stopLossRate"),
+            "take_profit": None if no_tp else pos.get("takeProfitRate"),
+        })
+
+    # Append zero-unit placeholders for watchlist tickers not currently held
+    for ticker in WATCHLIST_TICKERS:
+        if ticker not in active_tickers:
+            entries.append({
+                "ticker":      ticker,
+                "direction":   "BUY",
+                "units":       0,
+                "open_price":  0.0,
+                "open_date":   "",
+                "stop_loss":   None,
+                "take_profit": None,
+            })
+
+    with open(POSITIONS_PATH, "w") as f:
+        json.dump(entries, f, indent=2)
+
+    held = len([e for e in entries if e["units"] > 0])
+    log.info(f"positions.json updated: {held} open positions across {len(active_tickers)} tickers")
+
+
+def _parse_open_date(dt_str: str) -> str:
+    """Convert ISO datetime from the API ('2026-04-14T16:26:36.687Z') to 'D-M-YYYY'."""
+    if not dt_str:
+        return ""
+    try:
+        dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+        return f"{dt.day}-{dt.month}-{dt.year}"
+    except Exception:
+        return dt_str[:10]
+
+
+def _resolve_unknown_instrument(client: EToroClient, instrument_id: int) -> str | None:
+    """
+    Look up an instrument ID that is not yet in the local DB.
+    If found, persists it to the DB for future lookups.
+    """
+    inst = client.get_instrument_by_id(instrument_id)
+    if not inst:
+        return None
+
+    ticker = inst.get("symbolFull") or inst.get("symbol")
+    if not ticker:
+        return None
+
+    iid          = inst.get("instrumentID") or inst.get("internalInstrumentId") or instrument_id
+    display_name = inst.get("instrumentDisplayName") or inst.get("displayName") or ticker
+    exchange     = str(inst.get("exchangeID") or "")
+
+    upsert_instrument(ticker.upper(), int(iid), str(display_name), exchange)
+    log.info(f"Resolved unknown instrumentID {instrument_id} → {ticker}")
+    return ticker.upper()
 
 
 def backfill(tickers: list[str] = None):
