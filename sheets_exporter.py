@@ -1669,32 +1669,55 @@ def _build_chart_request(
 
 CHART_SPECS = [
     # (title,               chart_type, x_col, y_cols)
-    # Columns in OHLCV+indicator table (0-indexed):
-    # A=0 Date, B=1 Open, C=2 High, D=3 Low, E=4 Close, F=5 Volume, G=6 Chg%
-    # H=7 RSI, I=8 MACD_Hist, J=9 BB_Pct, K=10 EMA20, L=11 EMA50, M=12 EMA200
-    # N=13 Fisher, O=14 Fisher_Sig, P=15 ROC5, Q=16 ROC20, R=17 Vol_Ratio
-    ("RSI (14)",            "LINE",   0, [7]),
-    ("MACD Histogram",      "COLUMN", 0, [8]),
-    ("Bollinger Band %",    "LINE",   0, [9]),
-    ("EMA Alignment",       "LINE",   0, [4, 10, 11, 12]),
-    ("Fisher Transform",    "LINE",   0, [13, 14]),
-    ("Rate of Change",      "LINE",   0, [15, 16]),
-    ("Volume Ratio",        "COLUMN", 0, [17]),
+    # Data written to hidden columns Z+ (0-indexed: Z=25):
+    # Z=25 Date, AA=26 RSI, AB=27 MACD_Hist, AC=28 BB_Pct,
+    # AD=29 Close, AE=30 EMA20, AF=31 EMA50, AG=32 EMA200,
+    # AH=33 Fisher, AI=34 Fisher_Sig, AJ=35 ROC5, AK=36 ROC20, AL=37 Vol_Ratio
+    ("RSI (14)",            "LINE",   25, [26]),
+    ("MACD Histogram",      "COLUMN", 25, [27]),
+    ("Bollinger Band %",    "LINE",   25, [28]),
+    ("EMA Alignment",       "LINE",   25, [29, 30, 31, 32]),
+    ("Fisher Transform",    "LINE",   25, [33, 34]),
+    ("Rate of Change",      "LINE",   25, [35, 36]),
+    ("Volume Ratio",        "COLUMN", 25, [37]),
 ]
+
+
+def _write_z_data(
+    spreadsheet: gspread.Spreadsheet,
+    ticker: str,
+    grid: list[list],
+) -> None:
+    """Write hidden indicator time series to columns Z+ with retry on quota errors."""
+    for attempt in range(4):
+        try:
+            ws = spreadsheet.worksheet(ticker)
+            ws.update("Z1", _sanitize_rows(grid), value_input_option="RAW")
+            return
+        except gspread.exceptions.APIError as e:
+            if "429" in str(e) and attempt < 3:
+                wait = 20 * (attempt + 1)
+                log.warning("Quota hit writing Z-data for %s — retrying in %ds", ticker, wait)
+                time.sleep(wait)
+            else:
+                log.warning("Failed to write hidden indicator data for %s: %s", ticker, e)
+                return
 
 
 def _add_ticker_charts(
     spreadsheet: gspread.Spreadsheet,
     ticker: str,
-    ohlcv_header_row_0idx: int,
+    header_row_0idx: int = 0,
     num_data_rows: int = 90,
 ) -> None:
-    """Delete existing charts on the ticker tab and add 7 fresh indicator charts."""
+    """Delete existing charts on the ticker tab and add 7 fresh indicator charts.
+
+    Data always lives in columns Z+ starting at row 1 (0-indexed row 0 = header).
+    """
     try:
         ws       = spreadsheet.worksheet(ticker)
         sheet_id = ws.id
 
-        # Fetch current sheet metadata to find existing chart IDs
         meta   = spreadsheet.fetch_sheet_metadata()
         charts = []
         for sheet in meta.get("sheets", []):
@@ -1708,19 +1731,31 @@ def _add_ticker_charts(
 
         for i, (title, ctype, xcol, ycols) in enumerate(CHART_SPECS):
             reqs.append(_build_chart_request(
-                sheet_id            = sheet_id,
-                chart_index         = i,
-                title               = title,
-                chart_type          = ctype,
-                header_row          = ohlcv_header_row_0idx,
-                num_data_rows       = num_data_rows + 1,  # +1 to include header row in range
-                x_col               = xcol,
-                y_cols              = ycols,
+                sheet_id      = sheet_id,
+                chart_index   = i,
+                title         = title,
+                chart_type    = ctype,
+                header_row    = header_row_0idx,
+                num_data_rows = num_data_rows + 1,
+                x_col         = xcol,
+                y_cols        = ycols,
             ))
 
         if reqs:
-            spreadsheet.batch_update({"requests": reqs})
-            log.info("Charts updated for %s (%d old deleted, 7 new added)", ticker, len(charts))
+            time.sleep(2)   # brief pause to stay within Sheets write-quota
+            for attempt in range(4):
+                try:
+                    spreadsheet.batch_update({"requests": reqs})
+                    log.info("Charts updated for %s (%d old deleted, 7 new added)", ticker, len(charts))
+                    break
+                except gspread.exceptions.APIError as e:
+                    if "429" in str(e) and attempt < 3:
+                        wait = 20 * (attempt + 1)
+                        log.warning("Quota hit on charts for %s — retrying in %ds", ticker, wait)
+                        time.sleep(wait)
+                    else:
+                        log.warning("Chart creation failed for %s: %s", ticker, e)
+                        break
     except Exception as exc:
         log.warning("Chart creation failed for %s: %s", ticker, exc)
 
@@ -1872,65 +1907,62 @@ def _export_stock_tab(
     rows.append(["Fisher Signal", ind.get("fisher_signal", "")])
     rows.append(["", ""])
 
-    # ── Section 7: OHLCV + indicator time series ─────────────────────────────
-    # Track the 0-indexed row where the column header lands (needed for charts).
-    ohlcv_header_row_0idx = len(rows) + 1   # +1 for the section-title row
+    # ── Section 7: Indicator analysis ────────────────────────────────────────
+    rows.append(["INDICATOR ANALYSIS", "", "", ""])
+    rows.extend(_indicator_analysis_rows(ind, close))
+    rows.append(["", ""])
 
-    rows.append(["OHLCV + INDICATORS (90 days)", "", "", "", "", "", "",
-                 "", "", "", "", "", "", "", "", "", "", ""])
-    rows.append([
-        "Date", "Open", "High", "Low", "Close", "Volume", "Chg%",
-        "RSI", "MACD_Hist", "BB_Pct",
+    # ── Section 8: Macro factors ──────────────────────────────────────────────
+    rows.extend(_macro_rows(ticker, close))
+
+    _write_tab(spreadsheet, ticker, rows)
+
+    # ── Hidden indicator time series in columns Z+ (charts source data) ───────
+    # Written after _write_tab so ws.clear() doesn't erase it.
+    # Layout: Z=Date, AA=RSI, AB=MACD_Hist, AC=BB_Pct, AD=Close,
+    #         AE=EMA20, AF=EMA50, AG=EMA200, AH=Fisher, AI=Fisher_Sig,
+    #         AJ=ROC5, AK=ROC20, AL=Vol_Ratio
+    candles90    = get_candles(ticker, days=90)
+    num_data_rows = len(candles90) if candles90 else 0
+    indicator_grid: list[list] = [[
+        "Date", "RSI", "MACD_Hist", "BB_Pct", "Close",
         "EMA20", "EMA50", "EMA200",
-        "Fisher", "Fisher_Sig",
-        "ROC5", "ROC20", "Vol_Ratio",
-    ])
+        "Fisher", "Fisher_Sig", "ROC5", "ROC20", "Vol_Ratio",
+    ]]
 
-    candles90 = get_candles(ticker, days=90)
     if candles90 and df is not None:
-        # Compute full indicator series over 250-day window, then slice last 90
         rsi_s    = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
-        macd_obj = ta.trend.MACD(df["close"])
-        macd_h_s = macd_obj.macd_diff()
+        macd_h_s = ta.trend.MACD(df["close"]).macd_diff()
         bb_obj   = ta.volatility.BollingerBands(df["close"], window=20)
-        bbu_s    = bb_obj.bollinger_hband()
-        bbl_s    = bb_obj.bollinger_lband()
+        bbu_s, bbl_s = bb_obj.bollinger_hband(), bb_obj.bollinger_lband()
         ema20_s  = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
         ema50_s  = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
         ema200_s = ta.trend.EMAIndicator(df["close"], window=200).ema_indicator()
-
-        _period  = 9
-        _hh      = df["high"].rolling(_period).max()
-        _ll      = df["low"].rolling(_period).min()
-        _hl      = (_hh - _ll).replace(0, 0.001)
-        _val     = (2 * ((df["close"] - _ll) / _hl) - 1).clip(-0.999, 0.999)
-        fish_s   = 0.5 * np.log((1 + _val) / (1 - _val))
+        _p = 9
+        _hh = df["high"].rolling(_p).max()
+        _ll = df["low"].rolling(_p).min()
+        _hl = (_hh - _ll).replace(0, 0.001)
+        _v  = (2 * ((df["close"] - _ll) / _hl) - 1).clip(-0.999, 0.999)
+        fish_s    = 0.5 * np.log((1 + _v) / (1 - _v))
         fishsig_s = fish_s.shift(1)
+        roc5_s    = df["close"].pct_change(5)
+        roc20_s   = df["close"].pct_change(20)
+        volrat_s  = df["volume"] / df["volume"].rolling(20).mean().replace(0, np.nan)
 
-        roc5_s   = df["close"].pct_change(5)
-        roc20_s  = df["close"].pct_change(20)
-        volsma_s = df["volume"].rolling(20).mean()
-        volrat_s = df["volume"] / volsma_s.replace(0, np.nan)
-
-        # Align by date: build a map date→series index from the 250-day df
-        df_dates = list(df["date"]) if "date" in df.columns else []
-        date_to_idx = {d: i for i, d in enumerate(df_dates)}
-
-        for i, c in enumerate(candles90):
-            prev_close = candles90[i - 1]["close"] if i > 0 else None
-            chg = round((c["close"] - prev_close) / prev_close * 100, 2) if prev_close else ""
-
+        date_to_idx = {d: i for i, d in enumerate(list(df["date"]))}
+        for c in candles90:
             si = date_to_idx.get(c["date"])
             if si is not None:
-                cl   = float(c["close"])
-                bbu  = float(bbu_s.iloc[si]) if not np.isnan(bbu_s.iloc[si]) else None
-                bbl  = float(bbl_s.iloc[si]) if not np.isnan(bbl_s.iloc[si]) else None
+                cl  = float(c["close"])
+                bbu = float(bbu_s.iloc[si]) if not np.isnan(bbu_s.iloc[si]) else None
+                bbl = float(bbl_s.iloc[si]) if not np.isnan(bbl_s.iloc[si]) else None
                 bb_pct = round((cl - bbl) / (bbu - bbl) * 100, 2) if (bbu and bbl and bbu != bbl) else ""
-                rows.append([
-                    c["date"], c["open"], c["high"], c["low"], c["close"], c["volume"], chg,
+                indicator_grid.append([
+                    c["date"],
                     _safe(rsi_s.iloc[si]),
                     _safe(macd_h_s.iloc[si]),
                     bb_pct,
+                    cl,
                     _safe(ema20_s.iloc[si]),
                     _safe(ema50_s.iloc[si]),
                     _safe(ema200_s.iloc[si]),
@@ -1941,30 +1973,15 @@ def _export_stock_tab(
                     _safe(volrat_s.iloc[si]),
                 ])
             else:
-                rows.append([c["date"], c["open"], c["high"], c["low"], c["close"], c["volume"], chg,
-                             "", "", "", "", "", "", "", "", "", "", ""])
+                indicator_grid.append([c["date"]] + [""] * 12)
     else:
-        for i, c in enumerate(candles90 or []):
-            prev_close = candles90[i - 1]["close"] if i > 0 else None
-            chg = round((c["close"] - prev_close) / prev_close * 100, 2) if prev_close else ""
-            rows.append([c["date"], c["open"], c["high"], c["low"], c["close"], c["volume"], chg,
-                         "", "", "", "", "", "", "", "", "", "", ""])
+        for c in (candles90 or []):
+            indicator_grid.append([c["date"]] + [""] * 12)
 
-    num_data_rows = len(candles90) if candles90 else 0
-    rows.append(["", ""])
+    _write_z_data(spreadsheet, ticker, indicator_grid)
 
-    # ── Section 8: Indicator analysis ────────────────────────────────────────
-    rows.append(["INDICATOR ANALYSIS", "", "", ""])
-    rows.extend(_indicator_analysis_rows(ind, close))
-    rows.append(["", ""])
-
-    # ── Section 9: Macro factors ──────────────────────────────────────────────
-    rows.extend(_macro_rows(ticker, close))
-
-    _write_tab(spreadsheet, ticker, rows)
-
-    # ── Charts (added after tab write so sheet + data exist) ─────────────────
-    _add_ticker_charts(spreadsheet, ticker, ohlcv_header_row_0idx, num_data_rows)
+    # ── Charts (referencing Z+ data) ──────────────────────────────────────────
+    _add_ticker_charts(spreadsheet, ticker, 0, num_data_rows)
 
 
 # ── yfinance fundamentals ─────────────────────────────────────────────────────
