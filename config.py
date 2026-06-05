@@ -86,6 +86,7 @@ GOOGLE_SHEETS_CREDENTIALS_PATH = os.getenv(
 GOOGLE_SHEET_ID   = os.getenv("GOOGLE_SHEET_ID", "1AENJcGr49x1CG46BvUjMWPY36dSrLefkBE0jjBBrwx8")
 GOOGLE_SHEET_NAME = "Trading Dashboard"                 # Used only when creating a new sheet
 POSITIONS_PATH    = os.path.join(os.path.dirname(__file__), "positions.json")
+MACRO_CACHE_PATH  = os.path.join(os.path.dirname(__file__), "macro_cache.json")
 
 # Export schedule: NYSE/NASDAQ market open (09:30) and close (16:00) New York time.
 SHEETS_OPEN_HOUR    = 9

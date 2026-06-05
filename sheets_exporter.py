@@ -1448,6 +1448,283 @@ def _export_live_overview(
     _write_tab(spreadsheet, TAB_LIVE, all_rows)
 
 
+# ── Indicator analysis helpers ────────────────────────────────────────────────
+
+def _indicator_analysis_rows(ind: dict, close: float) -> list[list]:
+    """Build a 7-row table describing each composite-signal indicator."""
+    rows = []
+    rows.append(["Indicator", "Value", "Signal", "What it means"])
+
+    # RSI
+    rsi = ind.get("rsi", "")
+    if isinstance(rsi, float):
+        if rsi >= 70:
+            sig, meaning = "Overbought", f"RSI {rsi:.1f} — momentum stretched, watch for pullback."
+        elif rsi >= 60:
+            sig, meaning = "Bullish", f"RSI {rsi:.1f} — healthy upward momentum, not yet extreme."
+        elif rsi <= 30:
+            sig, meaning = "Oversold", f"RSI {rsi:.1f} — deeply oversold, contrarian buy zone."
+        elif rsi <= 40:
+            sig, meaning = "Weakening", f"RSI {rsi:.1f} — momentum fading, bias turning bearish."
+        else:
+            sig, meaning = "Neutral", f"RSI {rsi:.1f} — no clear momentum bias."
+        rows.append(["RSI (14)", round(rsi, 2), sig, meaning])
+    else:
+        rows.append(["RSI (14)", "", "N/A", "Insufficient data."])
+
+    # MACD Histogram
+    mh = ind.get("macd_hist", "")
+    macd, msig = ind.get("macd", ""), ind.get("macd_signal", "")
+    if isinstance(mh, float) and isinstance(macd, float) and isinstance(msig, float):
+        if mh > 0 and macd > msig:
+            sig, meaning = "Bullish", "MACD above signal and histogram positive — trend accelerating upward."
+        elif mh > 0:
+            sig, meaning = "Mild Bullish", "Histogram positive but MACD below signal — recovery attempt."
+        elif mh < 0 and macd < msig:
+            sig, meaning = "Bearish", "MACD below signal and histogram negative — trend decelerating."
+        else:
+            sig, meaning = "Mild Bearish", "Histogram negative but MACD above signal — momentum fading."
+        rows.append(["MACD Histogram", round(mh, 4), sig, meaning])
+    else:
+        rows.append(["MACD Histogram", "", "N/A", "Insufficient data."])
+
+    # EMA Alignment
+    trend = ind.get("trend", "N/A")
+    trend_map = {
+        "Strong uptrend":   ("Bullish",  "Price > EMA20 > EMA50 > EMA200 — full bull stack, trend intact."),
+        "Uptrend":          ("Bullish",  "Price above EMA50 and EMA200 — uptrend confirmed."),
+        "Strong downtrend": ("Bearish",  "Price < EMA20 < EMA50 < EMA200 — full bear stack, avoid."),
+        "Downtrend":        ("Bearish",  "Price below EMA50 and EMA200 — downtrend confirmed."),
+        "Neutral":          ("Neutral",  "Mixed EMA alignment — no clear directional bias."),
+    }
+    sig, meaning = trend_map.get(trend, ("N/A", "Insufficient data."))
+    rows.append(["EMA Alignment", trend, sig, meaning])
+
+    # BB Position
+    bbu, bbl = ind.get("bb_upper"), ind.get("bb_lower")
+    if isinstance(bbu, float) and isinstance(bbl, float) and bbu != bbl:
+        bb_pct = (close - bbl) / (bbu - bbl) * 100
+        if close > bbu:
+            sig, meaning = "Overextended", f"Price above upper band ({bb_pct:.0f}%) — overextended, mean-reversion risk."
+        elif close < bbl:
+            sig, meaning = "Oversold", f"Price below lower band — deeply oversold, bounce candidate."
+        elif bb_pct > 50:
+            sig, meaning = "Upper Half", f"Price at {bb_pct:.0f}% of band — in upper half, mildly bullish."
+        else:
+            sig, meaning = "Lower Half", f"Price at {bb_pct:.0f}% of band — in lower half, mildly bearish."
+        rows.append(["BB Position", f"{bb_pct:.1f}%", sig, meaning])
+    else:
+        rows.append(["BB Position", "", "N/A", "Insufficient data."])
+
+    # Fisher Transform
+    fisher, fsig = ind.get("fisher"), ind.get("fisher_signal")
+    if isinstance(fisher, float) and isinstance(fsig, float):
+        if fisher > fsig:
+            sig, meaning = "Bullish", "Fisher above signal — bullish crossover, momentum turning up."
+        else:
+            sig, meaning = "Bearish", "Fisher below signal — bearish crossover, short-term turning point warning."
+        rows.append(["Fisher Transform", round(fisher, 4), sig, meaning])
+    else:
+        rows.append(["Fisher Transform", "", "N/A", "Insufficient data."])
+
+    # ROC 5d
+    roc5 = ind.get("roc_5")
+    if isinstance(roc5, float):
+        pct = round(roc5 * 100, 2)
+        if roc5 > 0.05:
+            sig, meaning = "Bullish", f"{pct:+.2f}% — strong 1-week positive momentum."
+        elif roc5 > 0:
+            sig, meaning = "Mild Bullish", f"{pct:+.2f}% — slight positive 1-week drift."
+        elif roc5 < -0.05:
+            sig, meaning = "Bearish", f"{pct:+.2f}% — significant 1-week selling pressure."
+        else:
+            sig, meaning = "Mild Bearish", f"{pct:+.2f}% — slight negative 1-week drift."
+        rows.append(["ROC 5d", f"{pct:+.2f}%", sig, meaning])
+    else:
+        rows.append(["ROC 5d", "", "N/A", "Insufficient data."])
+
+    # ROC 20d
+    roc20 = ind.get("roc_20")
+    if isinstance(roc20, float):
+        pct = round(roc20 * 100, 2)
+        if roc20 > 0.15:
+            sig, meaning = "Bullish", f"{pct:+.2f}% — strong 1-month momentum, sustained uptrend."
+        elif roc20 > 0:
+            sig, meaning = "Mild Bullish", f"{pct:+.2f}% — positive 1-month trend."
+        elif roc20 < -0.15:
+            sig, meaning = "Bearish", f"{pct:+.2f}% — sharp 1-month decline, trend damaged."
+        else:
+            sig, meaning = "Mild Bearish", f"{pct:+.2f}% — negative 1-month drift."
+        rows.append(["ROC 20d", f"{pct:+.2f}%", sig, meaning])
+    else:
+        rows.append(["ROC 20d", "", "N/A", "Insufficient data."])
+
+    return rows
+
+
+def _macro_rows(ticker: str, close: float) -> list[list]:
+    """Build macro factors rows from the daily-cached yfinance data."""
+    from macro_cache import get_macro
+    macro = get_macro(ticker)
+
+    rows = []
+    rows.append([f"MACRO FACTORS (cached {macro.get('date', '')})", ""])
+
+    target = macro.get("analyst_target")
+    if target and close:
+        diff_pct = (close - target) / target * 100
+        target_str = f"${target:.2f}  ({diff_pct:+.0f}% vs current price)"
+    else:
+        target_str = str(target) if target else "N/A"
+
+    rows.append(["Sector",           macro.get("sector", "N/A")])
+    rows.append(["Industry",         macro.get("industry", "N/A")])
+    rows.append(["Market Cap",       macro.get("market_cap", "N/A")])
+    rows.append(["Analyst Target",   target_str])
+    rows.append(["52-Week High",     macro.get("52w_high", "N/A")])
+    rows.append(["52-Week Low",      macro.get("52w_low", "N/A")])
+    rows.append(["Short Ratio",      macro.get("short_ratio", "N/A")])
+    rows.append(["Institutional %",  f"{macro.get('institutional_pct', '')}%" if macro.get("institutional_pct") is not None else "N/A"])
+    rows.append(["", ""])
+    rows.append(["RECENT NEWS", ""])
+    news = macro.get("news", [])
+    if news:
+        for item in news:
+            rows.append([item.get("date", ""), item.get("title", ""), item.get("publisher", "")])
+    else:
+        rows.append(["No news cached — run: python main.py update-macro", ""])
+    rows.append(["", ""])
+    return rows
+
+
+def _build_chart_request(
+    sheet_id: int,
+    chart_index: int,
+    title: str,
+    chart_type: str,
+    header_row: int,
+    num_data_rows: int,
+    x_col: int,
+    y_cols: list[int],
+) -> dict:
+    """Build a single AddChartRequest dict for the Google Sheets API."""
+    data_start  = header_row       # 0-indexed row of the column header row
+    data_end    = header_row + num_data_rows  # exclusive end row
+
+    def grid_range(col_idx: int) -> dict:
+        return {
+            "sheetId":          sheet_id,
+            "startRowIndex":    data_start,
+            "endRowIndex":      data_end,
+            "startColumnIndex": col_idx,
+            "endColumnIndex":   col_idx + 1,
+        }
+
+    series = [
+        {
+            "series":     {"sourceRange": {"sources": [grid_range(c)]}},
+            "targetAxis": "LEFT_AXIS",
+        }
+        for c in y_cols
+    ]
+
+    chart_w, chart_h = 620, 270
+    anchor_col       = 19               # column T (0-indexed)
+    anchor_row       = header_row + chart_index * (chart_h // 21)
+
+    return {
+        "addChart": {
+            "chart": {
+                "spec": {
+                    "title": title,
+                    "basicChart": {
+                        "chartType":       chart_type,
+                        "legendPosition":  "BOTTOM_LEGEND",
+                        "axis": [
+                            {"position": "BOTTOM_AXIS", "title": "Date"},
+                            {"position": "LEFT_AXIS",   "title": title},
+                        ],
+                        "domains": [{
+                            "domain": {"sourceRange": {"sources": [grid_range(x_col)]}},
+                        }],
+                        "series":      series,
+                        "headerCount": 1,
+                    },
+                },
+                "position": {
+                    "overlayPosition": {
+                        "anchorCell": {
+                            "sheetId":     sheet_id,
+                            "rowIndex":    anchor_row,
+                            "columnIndex": anchor_col,
+                        },
+                        "widthPixels":  chart_w,
+                        "heightPixels": chart_h,
+                    }
+                },
+            }
+        }
+    }
+
+
+CHART_SPECS = [
+    # (title,               chart_type, x_col, y_cols)
+    # Columns in OHLCV+indicator table (0-indexed):
+    # A=0 Date, B=1 Open, C=2 High, D=3 Low, E=4 Close, F=5 Volume, G=6 Chg%
+    # H=7 RSI, I=8 MACD_Hist, J=9 BB_Pct, K=10 EMA20, L=11 EMA50, M=12 EMA200
+    # N=13 Fisher, O=14 Fisher_Sig, P=15 ROC5, Q=16 ROC20, R=17 Vol_Ratio
+    ("RSI (14)",            "LINE",   0, [7]),
+    ("MACD Histogram",      "COLUMN", 0, [8]),
+    ("Bollinger Band %",    "LINE",   0, [9]),
+    ("EMA Alignment",       "LINE",   0, [4, 10, 11, 12]),
+    ("Fisher Transform",    "LINE",   0, [13, 14]),
+    ("Rate of Change",      "LINE",   0, [15, 16]),
+    ("Volume Ratio",        "COLUMN", 0, [17]),
+]
+
+
+def _add_ticker_charts(
+    spreadsheet: gspread.Spreadsheet,
+    ticker: str,
+    ohlcv_header_row_0idx: int,
+    num_data_rows: int = 90,
+) -> None:
+    """Delete existing charts on the ticker tab and add 7 fresh indicator charts."""
+    try:
+        ws       = spreadsheet.worksheet(ticker)
+        sheet_id = ws.id
+
+        # Fetch current sheet metadata to find existing chart IDs
+        meta   = spreadsheet.fetch_sheet_metadata()
+        charts = []
+        for sheet in meta.get("sheets", []):
+            if sheet.get("properties", {}).get("sheetId") == sheet_id:
+                charts = sheet.get("charts", [])
+                break
+
+        reqs = []
+        for chart in charts:
+            reqs.append({"deleteEmbeddedObject": {"objectId": chart["chartId"]}})
+
+        for i, (title, ctype, xcol, ycols) in enumerate(CHART_SPECS):
+            reqs.append(_build_chart_request(
+                sheet_id            = sheet_id,
+                chart_index         = i,
+                title               = title,
+                chart_type          = ctype,
+                header_row          = ohlcv_header_row_0idx,
+                num_data_rows       = num_data_rows + 1,  # +1 to include header row in range
+                x_col               = xcol,
+                y_cols              = ycols,
+            ))
+
+        if reqs:
+            spreadsheet.batch_update({"requests": reqs})
+            log.info("Charts updated for %s (%d old deleted, 7 new added)", ticker, len(charts))
+    except Exception as exc:
+        log.warning("Chart creation failed for %s: %s", ticker, exc)
+
+
 # ── Tab: Per-stock ────────────────────────────────────────────────────────────
 
 def _export_stock_tab(
@@ -1595,17 +1872,99 @@ def _export_stock_tab(
     rows.append(["Fisher Signal", ind.get("fisher_signal", "")])
     rows.append(["", ""])
 
-    # ── Section 7: OHLCV history ──────────────────────────────────────────────
-    rows.append(["OHLCV HISTORY (90 days)", "", "", "", "", ""])
-    rows.append(["Date", "Open", "High", "Low", "Close", "Volume", "Change %"])
+    # ── Section 7: OHLCV + indicator time series ─────────────────────────────
+    # Track the 0-indexed row where the column header lands (needed for charts).
+    ohlcv_header_row_0idx = len(rows) + 1   # +1 for the section-title row
 
-    candles = get_candles(ticker, days=90)
-    for i, c in enumerate(candles):
-        prev_close = candles[i - 1]["close"] if i > 0 else None
-        chg = round((c["close"] - prev_close) / prev_close * 100, 2) if prev_close else ""
-        rows.append([c["date"], c["open"], c["high"], c["low"], c["close"], c["volume"], chg])
+    rows.append(["OHLCV + INDICATORS (90 days)", "", "", "", "", "", "",
+                 "", "", "", "", "", "", "", "", "", "", ""])
+    rows.append([
+        "Date", "Open", "High", "Low", "Close", "Volume", "Chg%",
+        "RSI", "MACD_Hist", "BB_Pct",
+        "EMA20", "EMA50", "EMA200",
+        "Fisher", "Fisher_Sig",
+        "ROC5", "ROC20", "Vol_Ratio",
+    ])
+
+    candles90 = get_candles(ticker, days=90)
+    if candles90 and df is not None:
+        # Compute full indicator series over 250-day window, then slice last 90
+        rsi_s    = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
+        macd_obj = ta.trend.MACD(df["close"])
+        macd_h_s = macd_obj.macd_diff()
+        bb_obj   = ta.volatility.BollingerBands(df["close"], window=20)
+        bbu_s    = bb_obj.bollinger_hband()
+        bbl_s    = bb_obj.bollinger_lband()
+        ema20_s  = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
+        ema50_s  = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
+        ema200_s = ta.trend.EMAIndicator(df["close"], window=200).ema_indicator()
+
+        _period  = 9
+        _hh      = df["high"].rolling(_period).max()
+        _ll      = df["low"].rolling(_period).min()
+        _hl      = (_hh - _ll).replace(0, 0.001)
+        _val     = (2 * ((df["close"] - _ll) / _hl) - 1).clip(-0.999, 0.999)
+        fish_s   = 0.5 * np.log((1 + _val) / (1 - _val))
+        fishsig_s = fish_s.shift(1)
+
+        roc5_s   = df["close"].pct_change(5)
+        roc20_s  = df["close"].pct_change(20)
+        volsma_s = df["volume"].rolling(20).mean()
+        volrat_s = df["volume"] / volsma_s.replace(0, np.nan)
+
+        # Align by date: build a map date→series index from the 250-day df
+        df_dates = list(df["date"]) if "date" in df.columns else []
+        date_to_idx = {d: i for i, d in enumerate(df_dates)}
+
+        for i, c in enumerate(candles90):
+            prev_close = candles90[i - 1]["close"] if i > 0 else None
+            chg = round((c["close"] - prev_close) / prev_close * 100, 2) if prev_close else ""
+
+            si = date_to_idx.get(c["date"])
+            if si is not None:
+                cl   = float(c["close"])
+                bbu  = float(bbu_s.iloc[si]) if not np.isnan(bbu_s.iloc[si]) else None
+                bbl  = float(bbl_s.iloc[si]) if not np.isnan(bbl_s.iloc[si]) else None
+                bb_pct = round((cl - bbl) / (bbu - bbl) * 100, 2) if (bbu and bbl and bbu != bbl) else ""
+                rows.append([
+                    c["date"], c["open"], c["high"], c["low"], c["close"], c["volume"], chg,
+                    _safe(rsi_s.iloc[si]),
+                    _safe(macd_h_s.iloc[si]),
+                    bb_pct,
+                    _safe(ema20_s.iloc[si]),
+                    _safe(ema50_s.iloc[si]),
+                    _safe(ema200_s.iloc[si]),
+                    _safe(fish_s.iloc[si]),
+                    _safe(fishsig_s.iloc[si]),
+                    _safe(roc5_s.iloc[si]),
+                    _safe(roc20_s.iloc[si]),
+                    _safe(volrat_s.iloc[si]),
+                ])
+            else:
+                rows.append([c["date"], c["open"], c["high"], c["low"], c["close"], c["volume"], chg,
+                             "", "", "", "", "", "", "", "", "", "", ""])
+    else:
+        for i, c in enumerate(candles90 or []):
+            prev_close = candles90[i - 1]["close"] if i > 0 else None
+            chg = round((c["close"] - prev_close) / prev_close * 100, 2) if prev_close else ""
+            rows.append([c["date"], c["open"], c["high"], c["low"], c["close"], c["volume"], chg,
+                         "", "", "", "", "", "", "", "", "", "", ""])
+
+    num_data_rows = len(candles90) if candles90 else 0
+    rows.append(["", ""])
+
+    # ── Section 8: Indicator analysis ────────────────────────────────────────
+    rows.append(["INDICATOR ANALYSIS", "", "", ""])
+    rows.extend(_indicator_analysis_rows(ind, close))
+    rows.append(["", ""])
+
+    # ── Section 9: Macro factors ──────────────────────────────────────────────
+    rows.extend(_macro_rows(ticker, close))
 
     _write_tab(spreadsheet, ticker, rows)
+
+    # ── Charts (added after tab write so sheet + data exist) ─────────────────
+    _add_ticker_charts(spreadsheet, ticker, ohlcv_header_row_0idx, num_data_rows)
 
 
 # ── yfinance fundamentals ─────────────────────────────────────────────────────

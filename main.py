@@ -13,6 +13,7 @@ Commands:
     python main.py setup-sheets          — One-time Google Sheets setup wizard
     python main.py export                — Manually push all data to Google Sheets now
     python main.py import-statement <f>  — Import closed trades from an eToro account statement CSV
+    python main.py update-macro [TICK…] — Refresh daily macro cache (news, analyst targets) for all or specific tickers
 
 Set your API keys in environment variables before running:
     export ETORO_API_KEY="your_public_key"
@@ -74,6 +75,11 @@ def main():
     elif command == "export":
         from sheets_exporter import run_export
         run_export(trigger="manual")
+
+    elif command == "update-macro":
+        from macro_cache import refresh_all_macro
+        tickers = args[1:] or None
+        refresh_all_macro(tickers)
 
     elif command == "import-statement":
         if len(args) < 2:
