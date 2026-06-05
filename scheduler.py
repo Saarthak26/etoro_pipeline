@@ -1,9 +1,11 @@
 """
-scheduler.py — Runs the daily data refresh automatically.
+scheduler.py — Runs the trading dashboard refresh automatically.
 
-Starts a background APScheduler job that calls pipeline.refresh() every evening
-at the time configured in config.py (default: 23:00 Europe/Berlin, safely after
-US market close at 22:00 Berlin time).
+Jobs (all times Europe/Berlin = CET/CEST):
+  1. Market open  — 15:30 Mon–Fri  → full export (Positions, Log Book, Daily P&L, Monthly Perf, Overview, ...)
+  2. Hourly       — 16:30–21:30 Mon–Fri → live-only export (Overview widget + Daily Perf + per-ticker tabs)
+  3. Market close — 22:00 Mon–Fri  → full export
+  4. Daily OHLCV  — 23:00 daily    → position sync + candle refresh + full export
 
 Run this process and leave it running — it handles itself.
 Use Ctrl+C or send SIGTERM to shut down gracefully.
@@ -18,10 +20,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from config import (
     SCHEDULER_HOUR, SCHEDULER_MINUTE, SCHEDULER_TZ,
-    SHEETS_OPEN_HOUR, SHEETS_OPEN_MINUTE,
-    SHEETS_CLOSE_HOUR, SHEETS_CLOSE_MINUTE,
-    SHEETS_MARKET_TZ,
-    GOOGLE_SHEETS_CREDENTIALS_PATH, GOOGLE_SHEET_ID,
+    GOOGLE_SHEET_ID,
 )
 from pipeline import refresh, sync_positions
 
@@ -29,12 +28,13 @@ log = logging.getLogger(__name__)
 
 
 def _daily_refresh():
-    """Sync live positions then refresh OHLCV data."""
+    """Sync live positions, refresh OHLCV data, then push a full export."""
     try:
         sync_positions()
     except Exception:
         log.exception("Position sync failed — continuing with OHLCV refresh")
     refresh()
+    _sheets_export("daily_refresh")
 
 
 def _sheets_export(trigger: str):
@@ -53,7 +53,49 @@ def run_scheduler():
     """Start the blocking APScheduler process."""
     scheduler = BlockingScheduler(timezone=SCHEDULER_TZ)
 
-    # ── 1. Position sync + OHLCV refresh (23:00 Berlin, after US market close) ──
+    # ── 1. Market open — 15:30 Berlin (09:30 NY) — FULL export ───────────────
+    scheduler.add_job(
+        func=lambda: _sheets_export("market_open"),
+        trigger=CronTrigger(
+            day_of_week="mon-fri",
+            hour=15, minute=30,
+            timezone=SCHEDULER_TZ,
+        ),
+        id="sheets_market_open",
+        name="Google Sheets — market open (full)",
+        replace_existing=True,
+        misfire_grace_time=1800,
+    )
+
+    # ── 2. Hourly — 16:30–21:30 Berlin — LIVE-ONLY export ────────────────────
+    scheduler.add_job(
+        func=lambda: _sheets_export("hourly"),
+        trigger=CronTrigger(
+            day_of_week="mon-fri",
+            hour="16-21", minute=30,
+            timezone=SCHEDULER_TZ,
+        ),
+        id="sheets_export_hourly",
+        name="Google Sheets — hourly live update",
+        replace_existing=True,
+        misfire_grace_time=1800,
+    )
+
+    # ── 3. Market close — 22:00 Berlin (16:00 NY) — FULL export ──────────────
+    scheduler.add_job(
+        func=lambda: _sheets_export("market_close"),
+        trigger=CronTrigger(
+            day_of_week="mon-fri",
+            hour=22, minute=0,
+            timezone=SCHEDULER_TZ,
+        ),
+        id="sheets_market_close",
+        name="Google Sheets — market close (full)",
+        replace_existing=True,
+        misfire_grace_time=1800,
+    )
+
+    # ── 4. Position sync + OHLCV refresh — 23:00 Berlin — FULL export ─────────
     scheduler.add_job(
         func=_daily_refresh,
         trigger=CronTrigger(
@@ -67,36 +109,6 @@ def run_scheduler():
         misfire_grace_time=3600,
     )
 
-    # ── 2. Google Sheets export at market open (09:30 New York, weekdays) ─────
-    scheduler.add_job(
-        func=lambda: _sheets_export("market_open"),
-        trigger=CronTrigger(
-            day_of_week="mon-fri",
-            hour=SHEETS_OPEN_HOUR,
-            minute=SHEETS_OPEN_MINUTE,
-            timezone=SHEETS_MARKET_TZ,
-        ),
-        id="sheets_export_open",
-        name="Google Sheets export — market open",
-        replace_existing=True,
-        misfire_grace_time=1800,
-    )
-
-    # ── 3. Google Sheets export at market close (16:00 New York, weekdays) ────
-    scheduler.add_job(
-        func=lambda: _sheets_export("market_close"),
-        trigger=CronTrigger(
-            day_of_week="mon-fri",
-            hour=SHEETS_CLOSE_HOUR,
-            minute=SHEETS_CLOSE_MINUTE,
-            timezone=SHEETS_MARKET_TZ,
-        ),
-        id="sheets_export_close",
-        name="Google Sheets export — market close",
-        replace_existing=True,
-        misfire_grace_time=1800,
-    )
-
     # ── Graceful shutdown on SIGTERM / Ctrl+C ─────────────────────────────────
     def shutdown(signum, frame):
         log.info("Shutdown signal received. Stopping scheduler...")
@@ -108,13 +120,13 @@ def run_scheduler():
 
     log.info(
         "Scheduler started.\n"
-        "  • Position sync + OHLCV refresh : %02d:%02d %s (daily)\n"
-        "  • Sheets open                   : %02d:%02d %s (Mon–Fri)\n"
-        "  • Sheets close                  : %02d:%02d %s (Mon–Fri)\n"
+        "  • Market open  (full export)  : 15:30 %s (Mon–Fri)\n"
+        "  • Hourly       (live-only)    : 16:30–21:30 %s (Mon–Fri)\n"
+        "  • Market close (full export)  : 22:00 %s (Mon–Fri)\n"
+        "  • Daily OHLCV  (full export)  : %02d:%02d %s\n"
         "Press Ctrl+C to stop.",
+        SCHEDULER_TZ, SCHEDULER_TZ, SCHEDULER_TZ,
         SCHEDULER_HOUR, SCHEDULER_MINUTE, SCHEDULER_TZ,
-        SHEETS_OPEN_HOUR, SHEETS_OPEN_MINUTE, SHEETS_MARKET_TZ,
-        SHEETS_CLOSE_HOUR, SHEETS_CLOSE_MINUTE, SHEETS_MARKET_TZ,
     )
 
     scheduler.start()

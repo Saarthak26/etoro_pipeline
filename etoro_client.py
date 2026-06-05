@@ -218,6 +218,23 @@ class EToroClient:
         result = self.get("/trading/info/portfolio")
         return result.get("clientPortfolio", {}).get("positions", [])
 
+    def get_account_snapshot(self) -> dict:
+        """
+        Fetch the full /trading/info/portfolio response.
+
+        Unlike get_portfolio(), this returns the entire clientPortfolio wrapper
+        so callers can read broker-authoritative account-level fields (credit,
+        totalProfit, etc.) plus per-position broker fields (amount, leverage,
+        profit) that get_portfolio() discards.
+
+        Returns:
+            The clientPortfolio dict. If the response is missing the wrapper,
+            returns an empty dict.
+        """
+        log.info("Fetching live portfolio snapshot (full clientPortfolio)...")
+        result = self.get("/trading/info/portfolio")
+        return result.get("clientPortfolio", {}) or {}
+
     def get_instrument_by_id(self, instrument_id: int) -> dict | None:
         """
         Look up an instrument by its numeric ID using the cached instruments list.

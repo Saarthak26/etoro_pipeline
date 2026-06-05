@@ -6,11 +6,13 @@ Commands:
     python main.py refresh               — Incremental daily refresh (stale tickers only)
     python main.py refresh NVDA AMD      — Refresh specific tickers only
     python main.py sync-positions        — Pull live positions from eToro and rewrite positions.json
+    python main.py account-summary       — Read-only diagnostic: dump eToro broker-authoritative account snapshot
     python main.py query NVDA            — Print last 10 candles for a ticker
     python main.py summary               — Print the latest close for every ticker
     python main.py scheduler             — Start the background daily refresh daemon
     python main.py setup-sheets          — One-time Google Sheets setup wizard
     python main.py export                — Manually push all data to Google Sheets now
+    python main.py import-statement <f>  — Import closed trades from an eToro account statement CSV
 
 Set your API keys in environment variables before running:
     export ETORO_API_KEY="your_public_key"
@@ -51,6 +53,10 @@ def main():
         from pipeline import sync_positions
         sync_positions()
 
+    elif command == "account-summary":
+        from account_summary import run_account_summary
+        run_account_summary()
+
     elif command == "query":
         _cmd_query(args[1:])
 
@@ -68,6 +74,14 @@ def main():
     elif command == "export":
         from sheets_exporter import run_export
         run_export(trigger="manual")
+
+    elif command == "import-statement":
+        if len(args) < 2:
+            print("Usage: python main.py import-statement <path_to_etoro_statement.csv>")
+            print("Export from eToro → Portfolio → History → Account Statement → CSV")
+            sys.exit(1)
+        from statement_importer import import_etoro_statement
+        import_etoro_statement(args[1])
 
     else:
         print(__doc__)

@@ -51,6 +51,23 @@ CREATE TABLE IF NOT EXISTS fetch_log (
     ticker          TEXT PRIMARY KEY,
     last_fetch_utc  TEXT NOT NULL       -- ISO 8601 UTC timestamp of last successful pull
 );
+
+CREATE TABLE IF NOT EXISTS closed_positions (
+    position_id   TEXT PRIMARY KEY,
+    ticker        TEXT NOT NULL,
+    direction     TEXT,
+    units         REAL,
+    open_price    REAL,
+    open_date     TEXT,
+    close_price   REAL,
+    close_date    TEXT,
+    realized_pnl  REAL,
+    fees          REAL DEFAULT 0,
+    source        TEXT DEFAULT 'auto'
+);
+
+CREATE INDEX IF NOT EXISTS idx_closed_positions_close_date
+    ON closed_positions (close_date ASC);
 """
 
 
@@ -306,6 +323,54 @@ def get_portfolio_summary() -> list[dict]:
             ORDER BY today.ticker
             """
         ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ── Closed positions table ────────────────────────────────────────────────────
+
+def save_closed_position(pos: dict) -> None:
+    """Insert or replace a closed position record. position_id is the unique key."""
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO closed_positions
+                (position_id, ticker, direction, units, open_price, open_date,
+                 close_price, close_date, realized_pnl, fees, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                pos.get("position_id", ""),
+                pos.get("ticker", ""),
+                pos.get("direction", "BUY"),
+                pos.get("units"),
+                pos.get("open_price"),
+                pos.get("open_date", ""),
+                pos.get("close_price"),
+                pos.get("close_date", ""),
+                pos.get("realized_pnl"),
+                pos.get("fees", 0),
+                pos.get("source", "auto"),
+            ),
+        )
+
+
+def get_closed_positions(from_date: str = None, to_date: str = None) -> list[dict]:
+    """Return closed positions optionally filtered by close_date range, oldest first."""
+    with get_connection() as conn:
+        if from_date and to_date:
+            rows = conn.execute(
+                "SELECT * FROM closed_positions WHERE close_date BETWEEN ? AND ? ORDER BY close_date ASC",
+                (from_date, to_date),
+            ).fetchall()
+        elif from_date:
+            rows = conn.execute(
+                "SELECT * FROM closed_positions WHERE close_date >= ? ORDER BY close_date ASC",
+                (from_date,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM closed_positions ORDER BY close_date ASC"
+            ).fetchall()
     return [dict(r) for r in rows]
 
 

@@ -37,6 +37,7 @@ from database import (
     get_ticker_by_instrument_id,
     is_stale,
     get_portfolio_summary,
+    save_closed_position,
 )
 
 log = logging.getLogger(__name__)
@@ -73,7 +74,48 @@ def sync_positions():
         else:
             log.warning(f"Could not resolve ticker for instrumentID {iid} — skipping")
 
-    # Build the new positions list
+    # ── Detect closed positions by comparing to previous snapshot ─────────────
+    new_position_ids = {str(p["positionID"]) for p in raw_positions if p.get("positionID")}
+    try:
+        with open(POSITIONS_PATH) as f:
+            old_entries = json.load(f)
+        old_ids = {str(e["position_id"]) for e in old_entries if e.get("position_id")}
+        closed_ids = old_ids - new_position_ids
+        if closed_ids:
+            log.info(f"Detected {len(closed_ids)} closed position(s): {closed_ids}")
+            for old_e in old_entries:
+                pid = str(old_e.get("position_id", ""))
+                if pid not in closed_ids:
+                    continue
+                ticker     = old_e.get("ticker", "")
+                units      = float(old_e.get("units") or 0)
+                open_price = float(old_e.get("open_price") or 0)
+                direction  = old_e.get("direction", "BUY")
+                # Best-effort close price from the most recent daily candle
+                from database import get_latest_close
+                latest = get_latest_close(ticker)
+                close_price = float(latest["close"]) if latest else 0.0
+                realized = ((close_price - open_price) * units
+                            if direction == "BUY"
+                            else (open_price - close_price) * units)
+                save_closed_position({
+                    "position_id": pid,
+                    "ticker":      ticker,
+                    "direction":   direction,
+                    "units":       units,
+                    "open_price":  open_price,
+                    "open_date":   old_e.get("open_date", ""),
+                    "close_price": close_price,
+                    "close_date":  datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    "realized_pnl": round(realized, 2),
+                    "fees":        float(old_e.get("total_fees") or 0),
+                    "source":      "auto",
+                })
+                log.info(f"Saved closed position: {ticker} pid={pid} P&L=${realized:.2f}")
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        pass   # No previous positions.json or missing position_id — skip detection
+
+    # ── Build the new positions list ───────────────────────────────────────────
     active_tickers: set[str] = set()
     entries: list[dict] = []
 
@@ -90,12 +132,14 @@ def sync_positions():
 
         entries.append({
             "ticker":      ticker,
+            "position_id": str(pos.get("positionID", "")),
             "direction":   "BUY" if pos.get("isBuy", True) else "SELL",
             "units":       pos["units"],
             "open_price":  pos["openRate"],
             "open_date":   open_dt,
             "stop_loss":   None if no_sl else pos.get("stopLossRate"),
             "take_profit": None if no_tp else pos.get("takeProfitRate"),
+            "total_fees":  pos.get("totalFees", 0),
         })
 
     # Append zero-unit placeholders for watchlist tickers not currently held
@@ -103,12 +147,14 @@ def sync_positions():
         if ticker not in active_tickers:
             entries.append({
                 "ticker":      ticker,
+                "position_id": "",
                 "direction":   "BUY",
                 "units":       0,
                 "open_price":  0.0,
                 "open_date":   "",
                 "stop_loss":   None,
                 "take_profit": None,
+                "total_fees":  0,
             })
 
     with open(POSITIONS_PATH, "w") as f:

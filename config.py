@@ -9,7 +9,7 @@ import os
 # ── API credentials ──────────────────────────────────────────────────────────
 # Load from environment variables (recommended) or paste directly for testing.
 ETORO_API_KEY  = os.getenv("ETORO_API_KEY",  "sdgdskldFPLGfjHn1421dgnlxdGTbngdflg6290bRjslfihsjhSDsdgGHH25hjf")
-ETORO_USER_KEY = os.getenv("ETORO_USER_KEY", "eyJjaSI6IjYwY2FiYjBiLTU1OTctNDQ4NS04ZjYzLTdlOWUwNTZlMGJiOCIsImVhbiI6IlVucmVnaXN0ZXJlZEFwcGxpY2F0aW9uIiwiZWsiOiJZcVFuLkloLm9SWHA2NmNsZjBGSWl4VWNqRXk0dEdDczNnRXhmT08zbGl0akpYR0UtdGJDSXRaTktOWU94dWF4SGZsNFVtSmlocjBwaENrSzlNbE5nb1dkcGMwV0V1OHRJUTNkTmw3aXBlSV8ifQ__")
+ETORO_USER_KEY = os.getenv("ETORO_USER_KEY", "eyJjaSI6IjYwY2FiYjBiLTU1OTctNDQ4NS04ZjYzLTdlOWUwNTZlMGJiOCIsImVhbiI6IlVucmVnaXN0ZXJlZEFwcGxpY2F0aW9uIiwiZWsiOiJNNW4zSW9XS0NrQjE5QlpHcVFOU1ZjZUJMMTBLcDhrQmVUclc5YnQwZ0FyNllVLlktZFZXdTBLVkhKb0tsZ3k2T1E0dTd1cWRwdmRlZ25jbExESDFITkJSSzRaNTVIdjQ1UmpKVzlYSDBnWV8ifQ__")
 
 BASE_URL = "https://public-api.etoro.com/api/v1"
 
@@ -46,7 +46,7 @@ COMPANY_INFO = {
 
 # ── Data settings ─────────────────────────────────────────────────────────────
 # How many daily candles to fetch on the initial backfill (max 1000 per eToro).
-INITIAL_CANDLES_COUNT = 365        # ~1 year of daily data on first run
+INITIAL_CANDLES_COUNT = 1000       # ~4 years of daily data on first run
 REFRESH_CANDLES_COUNT = 10         # Last 10 days on daily refresh (catches weekends and gaps)
 CACHE_TTL_HOURS       = 12         # Re-fetch if the last pull was more than 12 hours ago
 
@@ -66,9 +66,14 @@ SCHEDULER_TZ     = "Europe/Berlin"
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
 # eToro allows 60 GET requests/min. We stay well under that.
-REQUEST_DELAY_SECONDS = 1.5        # Pause between API calls
+REQUEST_DELAY_SECONDS = 1.0        # Pause between API calls
 MAX_RETRIES           = 4          # Retry attempts on 429 or 5xx
 BACKOFF_FACTOR        = 2          # Exponential backoff multiplier
+
+# ── Portfolio baseline ────────────────────────────────────────────────────────
+# Uninvested cash in your eToro account ("available cash" in the app), in USD.
+# e.g. €83 × 1.13 EUR/USD ≈ $94. Added as a constant to every day's portfolio value.
+INITIAL_CASH = 801.65
 
 # ── Google Sheets ─────────────────────────────────────────────────────────────
 # 1. Place your service account JSON key at the path below (or set the env var).
