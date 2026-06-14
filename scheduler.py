@@ -1,11 +1,12 @@
 """
 scheduler.py — Runs the trading dashboard refresh automatically.
 
-Jobs (all times Europe/Berlin = CET/CEST):
-  1. Market open  — 15:30 Mon–Fri  → full export (Positions, Log Book, Daily P&L, Monthly Perf, Overview, ...)
-  2. Hourly       — 16:30–21:30 Mon–Fri → live-only export (Overview widget + Daily Perf + per-ticker tabs)
-  3. Market close — 22:00 Mon–Fri  → full export
-  4. Daily OHLCV  — 23:00 daily    → position sync + candle refresh + full export
+Jobs:
+  1. Market open  — 15:30 Berlin  Mon–Fri  → full export (Positions, Log Book, Daily P&L, Monthly Perf, Overview, ...)
+  2. Hourly       — 16:30–21:30 Berlin Mon–Fri → live-only export (Overview widget + Daily Perf + per-ticker tabs)
+  3. Market close — 22:00 Berlin  Mon–Fri  → full export
+  4. Daily OHLCV  — 23:00 Berlin  daily    → position sync + candle refresh + full export
+  5. NY midnight  — 00:00 New York daily   → full export
 
 Run this process and leave it running — it handles itself.
 Use Ctrl+C or send SIGTERM to shut down gracefully.
@@ -109,6 +110,19 @@ def run_scheduler():
         misfire_grace_time=3600,
     )
 
+    # ── 5. NY midnight — 00:00 America/New_York — FULL export ────────────────
+    scheduler.add_job(
+        func=lambda: _sheets_export("ny_midnight"),
+        trigger=CronTrigger(
+            hour=0, minute=0,
+            timezone="America/New_York",
+        ),
+        id="sheets_ny_midnight",
+        name="Google Sheets — NY midnight (full)",
+        replace_existing=True,
+        misfire_grace_time=1800,
+    )
+
     # ── Graceful shutdown on SIGTERM / Ctrl+C ─────────────────────────────────
     def shutdown(signum, frame):
         log.info("Shutdown signal received. Stopping scheduler...")
@@ -124,6 +138,7 @@ def run_scheduler():
         "  • Hourly       (live-only)    : 16:30–21:30 %s (Mon–Fri)\n"
         "  • Market close (full export)  : 22:00 %s (Mon–Fri)\n"
         "  • Daily OHLCV  (full export)  : %02d:%02d %s\n"
+        "  • NY midnight  (full export)  : 00:00 America/New_York (daily)\n"
         "Press Ctrl+C to stop.",
         SCHEDULER_TZ, SCHEDULER_TZ, SCHEDULER_TZ,
         SCHEDULER_HOUR, SCHEDULER_MINUTE, SCHEDULER_TZ,
