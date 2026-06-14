@@ -16,7 +16,7 @@ import logging
 import os
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 _BERLIN = ZoneInfo("Europe/Berlin")
@@ -47,17 +47,23 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive.file",
 ]
 
-TAB_POSITIONS    = "Positions"
-TAB_OVERVIEW     = "Overview"
-TAB_LOGBOOK      = "Log Book"
-TAB_DAILY_PNL    = "Daily P&L"
-TAB_MONTHLY_PERF = "Monthly Performance"
-TAB_DAILY_PERF   = "Daily Performance"
-TAB_LIVE         = "Live Overview"
-TAB_CLOSED       = "Closed Trades"
-TAB_META         = "Metadata"
-STATIC_TABS      = [TAB_POSITIONS, TAB_OVERVIEW, TAB_LOGBOOK, TAB_DAILY_PNL,
-                    TAB_MONTHLY_PERF, TAB_DAILY_PERF, TAB_LIVE, TAB_CLOSED, TAB_META]
+TAB_DASHBOARD       = "Dashboard"
+TAB_CHART_DATA      = "Chart Data"
+TAB_LOOKER_DAILY    = "Looker - Daily"
+TAB_LOOKER_POSITIONS = "Looker - Positions"
+TAB_POSITIONS       = "Positions"
+TAB_OVERVIEW        = "Overview"
+TAB_LOGBOOK         = "Log Book"
+TAB_DAILY_PNL       = "Daily P&L"
+TAB_MONTHLY_PERF    = "Monthly Performance"
+TAB_DAILY_PERF      = "Daily Performance"
+TAB_LIVE            = "Live Overview"
+TAB_CLOSED          = "Closed Trades"
+TAB_META            = "Metadata"
+STATIC_TABS         = [TAB_DASHBOARD, TAB_CHART_DATA,
+                       TAB_LOOKER_DAILY, TAB_LOOKER_POSITIONS,
+                       TAB_POSITIONS, TAB_OVERVIEW, TAB_LOGBOOK, TAB_DAILY_PNL,
+                       TAB_MONTHLY_PERF, TAB_DAILY_PERF, TAB_LIVE, TAB_CLOSED, TAB_META]
 
 # Regime multipliers: scale IC weights up/down based on market environment
 REGIME_MULTIPLIERS = {
@@ -930,6 +936,28 @@ def _compute_composite_signal(
             except Exception:
                 pass
 
+        # ── Macro modifiers ───────────────────────────────────────────────────
+        macro_adj = 0.0
+        analyst_target = (fund or {}).get("analyst_target")
+        if isinstance(analyst_target, float) and analyst_target > 0 and close > 0:
+            gap = (close - analyst_target) / analyst_target
+            if   gap >  0.40: macro_adj -= 0.75
+            elif gap >  0.20: macro_adj -= 0.40
+            elif gap >  0.10: macro_adj -= 0.20
+            elif gap < -0.30: macro_adj += 0.75
+            elif gap < -0.15: macro_adj += 0.40
+            elif gap < -0.05: macro_adj += 0.20
+
+        w52h = (fund or {}).get("week52_high")
+        w52l = (fund or {}).get("week52_low")
+        if isinstance(w52h, float) and isinstance(w52l, float) and w52h > w52l and close > 0:
+            pct_from_high = (w52h - close) / w52h
+            pct_from_low  = (close - w52l) / w52l if w52l > 0 else 1.0
+            if   pct_from_high < 0.03:  macro_adj -= 0.25
+            elif pct_from_low  < 0.10:  macro_adj += 0.25
+
+        score += macro_adj
+
         score = round(score, 2)
         if   score >= 3.5:  label = "Strong Buy"
         elif score >= 1.5:  label = "Buy"
@@ -942,6 +970,8 @@ def _compute_composite_signal(
         top_signal_str = f"{top_sig} IC={top_ic:+.2f}" if top_sig else ""
         reason  = (f"Regime:{regime or 'N/A'}  Score {score:+.2f}  "
                    f"Top signal: {top_signal_str}")
+        if macro_adj != 0:
+            reason += f"  MacroAdj:{macro_adj:+.2f}"
 
         # ── Trend confirmation gate ───────────────────────────────────────────
         # Prevents IC mean-reversion signals from labelling a clearly trending
@@ -974,7 +1004,8 @@ def _compute_composite_signal(
             reason += "  [↓ trend gate]"
 
         return {"score": score, "label": label, "reason": reason,
-                "regime": regime or "", "top_signal": top_signal_str}
+                "regime": regime or "", "top_signal": top_signal_str,
+                "macro_adj": round(macro_adj, 2)}
 
     # ── Legacy fixed-weight path (unchanged) ─────────────────────────────────
     score = 0.0
@@ -1055,6 +1086,30 @@ def _compute_composite_signal(
         if isinstance(de_ratio, float) and de_ratio > 2.0:
             score -= 0.25; parts.append(f"D/E {de_ratio:.1f} high debt (-0.25)")
 
+    # ── Macro modifiers ───────────────────────────────────────────────────────
+    macro_adj = 0.0
+    analyst_target = (fund or {}).get("analyst_target")
+    if isinstance(analyst_target, float) and analyst_target > 0 and close > 0:
+        gap = (close - analyst_target) / analyst_target
+        if   gap >  0.40: macro_adj -= 0.75
+        elif gap >  0.20: macro_adj -= 0.40
+        elif gap >  0.10: macro_adj -= 0.20
+        elif gap < -0.30: macro_adj += 0.75
+        elif gap < -0.15: macro_adj += 0.40
+        elif gap < -0.05: macro_adj += 0.20
+
+    w52h = (fund or {}).get("week52_high")
+    w52l = (fund or {}).get("week52_low")
+    if isinstance(w52h, float) and isinstance(w52l, float) and w52h > w52l and close > 0:
+        pct_from_high = (w52h - close) / w52h
+        pct_from_low  = (close - w52l) / w52l if w52l > 0 else 1.0
+        if   pct_from_high < 0.03:  macro_adj -= 0.25
+        elif pct_from_low  < 0.10:  macro_adj += 0.25
+
+    if macro_adj != 0:
+        score += macro_adj
+        parts.append(f"MacroAdj:{macro_adj:+.2f}")
+
     # ── Volume multiplier [0.75, 1.5] — amplifies or dampens the signal ──────
     vol_ratio = ind.get("volume_ratio", 1.0)
     if isinstance(vol_ratio, float) and vol_ratio > 0:
@@ -1069,7 +1124,8 @@ def _compute_composite_signal(
     else:               label = "Strong Sell"
 
     reason = f"Score {score:+.2f} | " + " · ".join(parts) if parts else f"Score {score:+.2f}"
-    return {"score": round(score, 2), "label": label, "reason": reason, "regime": "", "top_signal": ""}
+    return {"score": round(score, 2), "label": label, "reason": reason, "regime": "", "top_signal": "",
+            "macro_adj": round(macro_adj, 2)}
 
 
 def _signal_reason(ind: dict, ticker: str) -> str:
@@ -1278,7 +1334,7 @@ def _export_overview(
     headers = [
         "Ticker", "Date", "Close", "Open", "High", "Low", "Volume",
         "Day Change %",
-        "Signal Label", "Signal Score", "Regime", "Top Signal",
+        "Signal Label", "Signal Score", "Macro Adj", "Regime", "Top Signal",
         "RSI", "MACD", "MACD Signal", "MACD Hist",
         "EMA20", "EMA50", "EMA200",
         "BB Upper", "BB Middle", "BB Lower",
@@ -1323,6 +1379,7 @@ def _export_overview(
             p.get("day_change_pct", ""),
             comp["label"],
             comp["score"],
+            comp.get("macro_adj", 0),
             comp.get("regime", regime),
             comp.get("top_signal", ""),
             ind.get("rsi", ""),
@@ -2506,6 +2563,579 @@ def _export_metadata(spreadsheet: gspread.Spreadsheet, trigger: str):
     _write_tab(spreadsheet, TAB_META, rows)
 
 
+# ── Tab: Dashboard / Chart Data / Looker ──────────────────────────────────────
+#
+# Architecture:
+#   - "Chart Data"     — clean tabular blocks (no spacer hacks). Source of truth
+#                        for all Dashboard charts. Importable into Looker too.
+#   - "Looker - Daily" — flat daily portfolio time series for Looker Studio.
+#   - "Looker - Positions" — flat per-ticker snapshot for Looker Studio.
+#   - "Dashboard"      — only KPI tiles + leaderboards + chart overlays. Charts
+#                        reference cells on "Chart Data" via sheetId.
+#
+# Why the earlier embedded-data-in-Dashboard approach showed empty charts:
+# spacer columns + value_input_option="RAW" appear to have confused Sheets'
+# chart auto-type detection. Putting each chart's data in its own contiguous
+# block on a dedicated tab, written with USER_ENTERED, sidesteps that.
+
+
+# Per-block layout on the Chart Data tab.
+# Each entry: (key, x_header, y_header, start_col_0idx).
+# Blocks are 2 columns wide with a 1-column spacer between them.
+CHART_DATA_BLOCKS = [
+    ("spend",   "Ticker", "Cost Basis",        0),    # A-B
+    ("profit",  "Ticker", "Abs Unrealized $",  3),    # D-E
+    ("dod",     "Date",   "Value",             6),    # G-H
+    ("wow",     "Date",   "Value",             9),    # J-K
+    ("mom",     "Date",   "Value",            12),    # M-N
+    ("yoy",     "Date",   "Value",            15),    # P-Q
+    ("dd",      "Date",   "Drawdown %",       18),    # S-T
+    ("signal",  "Signal", "Count",            21),    # V-W
+]
+
+
+def _build_dashboard_chart_request(
+    source_sheet_id: int,
+    anchor_sheet_id: int,
+    title: str,
+    chart_type: str,
+    data_start_row: int,
+    data_end_row: int,
+    x_col: int,
+    y_cols: list[int],
+    anchor_row: int,
+    anchor_col: int,
+    width_px: int = 460,
+    height_px: int = 300,
+    is_donut: bool = False,
+) -> dict:
+    """AddChartRequest where the data lives on ``source_sheet_id`` and the chart
+    overlay is anchored on ``anchor_sheet_id``. Supports LINE/COLUMN/PIE.
+
+    For PIE charts the header row is EXCLUDED from the range (data_start_row=1)
+    because Sheets does not honor headerCount for pie charts and a text header
+    in a numeric series column causes "Add a series to start visualising" errors.
+    """
+    def grid_range(col_idx: int, skip_header: bool = False) -> dict:
+        return {
+            "sheetId":          source_sheet_id,
+            "startRowIndex":    (data_start_row + 1) if skip_header else data_start_row,
+            "endRowIndex":      data_end_row,
+            "startColumnIndex": col_idx,
+            "endColumnIndex":   col_idx + 1,
+        }
+
+    if chart_type == "PIE":
+        spec = {
+            "title":    title,
+            "pieChart": {
+                "legendPosition": "RIGHT_LEGEND",
+                "pieHole":        0.5 if is_donut else 0.0,
+                "domain":         {"sourceRange": {"sources": [grid_range(x_col, skip_header=True)]}},
+                "series":         {"sourceRange": {"sources": [grid_range(y_cols[0], skip_header=True)]}},
+                "threeDimensional": False,
+            },
+        }
+    else:
+        series = [
+            {
+                "series":     {"sourceRange": {"sources": [grid_range(c)]}},
+                "targetAxis": "LEFT_AXIS",
+            }
+            for c in y_cols
+        ]
+        spec = {
+            "title":    title,
+            "basicChart": {
+                "chartType":      chart_type,
+                "legendPosition": "BOTTOM_LEGEND",
+                "axis": [
+                    {"position": "BOTTOM_AXIS", "title": "Date"},
+                    {"position": "LEFT_AXIS",   "title": title},
+                ],
+                "domains": [{"domain": {"sourceRange": {"sources": [grid_range(x_col)]}}}],
+                "series":      series,
+                "headerCount": 1,
+            },
+        }
+
+    return {
+        "addChart": {
+            "chart": {
+                "spec": spec,
+                "position": {
+                    "overlayPosition": {
+                        "anchorCell": {
+                            "sheetId":     anchor_sheet_id,
+                            "rowIndex":    anchor_row,
+                            "columnIndex": anchor_col,
+                        },
+                        "widthPixels":  width_px,
+                        "heightPixels": height_px,
+                    }
+                },
+            }
+        }
+    }
+
+
+def _resample_history(history: list[dict], freq: str, n_periods: int | None = None) -> list[tuple[str, float]]:
+    """Resample portfolio value history by frequency.
+
+    freq:
+        "D"  → daily (no resample)
+        "W"  → weekly (Friday close)
+        "M"  → month-end
+        "Y"  → year-end
+    Returns list of (date_str, value) tuples in chronological order, tail-trimmed to n_periods.
+    """
+    if not history:
+        return []
+    df = pd.DataFrame(history)
+    df["date"]  = pd.to_datetime(df["date"])
+    df         = df.set_index("date").sort_index()
+    if freq == "D":
+        s = df["value"]
+    elif freq == "W":
+        s = df["value"].resample("W-FRI").last().dropna()
+    elif freq == "M":
+        s = df["value"].resample("ME").last().dropna()
+    elif freq == "Y":
+        s = df["value"].resample("YE").last().dropna()
+    else:
+        s = df["value"]
+    if n_periods is not None:
+        s = s.tail(n_periods)
+    return [(idx.strftime("%Y-%m-%d"), round(float(val), 2)) for idx, val in s.items()]
+
+
+def _compute_drawdown_series(history: list[dict]) -> list[tuple[str, float]]:
+    """Running drawdown % from peak: (value - running_peak) / running_peak × 100. Returns negative %s."""
+    if not history:
+        return []
+    out = []
+    peak = -1e18
+    for h in history:
+        v = float(h.get("value") or 0)
+        if v > peak:
+            peak = v
+        dd_pct = round((v - peak) / peak * 100, 2) if peak > 0 else 0.0
+        out.append((h["date"], dd_pct))
+    return out
+
+
+def _signal_distribution(
+    tickers: list[str],
+    ticker_weights: dict,
+    fundamentals: dict,
+    portfolio: dict,
+    regime: str,
+) -> dict[str, int]:
+    """Tally composite signal labels across the effective ticker list."""
+    counts = {"Strong Buy": 0, "Buy": 0, "Hold": 0, "Sell": 0, "Strong Sell": 0}
+    for ticker in tickers:
+        df = _build_df(ticker)
+        if df is None:
+            continue
+        ind   = _compute_indicators(df)
+        close = float(portfolio.get(ticker, {}).get("latest_close") or 0)
+        fund  = fundamentals.get(ticker, {})
+        w     = ticker_weights.get(ticker)
+        comp  = _compute_composite_signal(ind, close, fund, weights=w, regime=regime)
+        label = comp.get("label", "Hold")
+        if label in counts:
+            counts[label] += 1
+    return counts
+
+
+def _compute_dashboard_data(
+    positions: dict,
+    portfolio: dict,
+    fundamentals: dict,
+    ticker_weights: dict,
+    regime: str,
+    portfolio_history: list[dict],
+    risk: dict,
+    spy_ytd_return,
+    portfolio_ytd_return,
+) -> dict:
+    """Compute every dataset the Dashboard + Chart Data + Looker tabs need.
+    Pure function — no Sheets I/O. Returned dict is consumed by the writers."""
+    from database import get_closed_positions
+
+    pnl_records: list[dict] = []
+    total_invested = total_value = total_unrealized = 0.0
+    for ticker, legs in positions.items():
+        price = float(portfolio.get(ticker, {}).get("latest_close") or 0)
+        if not price:
+            continue
+        agg = _aggregate_pnl(legs, price)
+        if not agg:
+            continue
+        pnl_records.append({
+            "ticker":     ticker,
+            "direction":  agg["direction"],
+            "units":      agg["total_units"],
+            "avg_entry":  agg["avg_entry"],
+            "price":      round(price, 4),
+            "cost":       agg["total_cost"],
+            "value":      agg["total_value"],
+            "pnl":        agg["total_pnl"],
+            "pct":        agg["pnl_pct"],
+        })
+        total_invested   += agg["total_cost"]
+        total_value      += agg["total_value"]
+        total_unrealized += agg["total_pnl"]
+
+    try:
+        closed = get_closed_positions()
+    except Exception:
+        closed = []
+    realized_total = sum(float(c.get("realized_pnl") or 0) for c in closed) if closed else 0.0
+    n_closed       = len(closed)
+    n_wins         = sum(1 for c in closed if float(c.get("realized_pnl") or 0) > 0)
+    win_rate_pct   = round(n_wins / n_closed * 100, 1) if n_closed else 0.0
+
+    total_equity = float(INITIAL_CASH) + total_unrealized + realized_total
+
+    def _pct_change_over(n_calendar_days: int) -> float | None:
+        if not portfolio_history:
+            return None
+        end_val = portfolio_history[-1]["value"]
+        end_dt  = datetime.strptime(portfolio_history[-1]["date"], "%Y-%m-%d").date()
+        target  = end_dt - timedelta(days=n_calendar_days)
+        prev    = next(
+            (h for h in reversed(portfolio_history)
+             if datetime.strptime(h["date"], "%Y-%m-%d").date() <= target),
+            None,
+        )
+        if not prev or not prev["value"]:
+            return None
+        return round((end_val / prev["value"] - 1) * 100, 2)
+
+    day_pnl_pct  = _pct_change_over(1)
+    week_pnl_pct = _pct_change_over(7)
+    mtd_start = datetime.now(timezone.utc).date().replace(day=1).isoformat()
+    mtd_rec   = next((h for h in portfolio_history if h["date"] >= mtd_start), None)
+    mtd_pct   = (round((portfolio_history[-1]["value"] / mtd_rec["value"] - 1) * 100, 2)
+                 if mtd_rec and mtd_rec["value"] else None)
+    day_pnl_dollar = (round(portfolio_history[-1]["value"] - portfolio_history[-2]["value"], 2)
+                      if len(portfolio_history) >= 2 else 0.0)
+
+    profit_sorted = sorted(pnl_records, key=lambda x: x["pnl"], reverse=True)
+    spend_rows   = sorted([(p["ticker"], p["cost"]) for p in pnl_records],
+                          key=lambda x: x[1], reverse=True)
+    profit_donut = [
+        (("▲ " if p["pnl"] > 0 else "▼ ") + p["ticker"], abs(p["pnl"]))
+        for p in profit_sorted if abs(p["pnl"]) > 0.01
+    ]
+
+    dod = _resample_history(portfolio_history, "D", 60)
+    wow = _resample_history(portfolio_history, "W", 26)
+    mom = _resample_history(portfolio_history, "M", 24)
+    yoy = _resample_history(portfolio_history, "Y")
+    dd  = _compute_drawdown_series(portfolio_history)[-180:]
+    sig_counts = _signal_distribution(
+        list(positions.keys()), ticker_weights, fundamentals, portfolio, regime
+    )
+
+    return {
+        "kpi": {
+            "total_equity":     total_equity,
+            "total_invested":   total_invested,
+            "total_unrealized": total_unrealized,
+            "realized_total":   realized_total,
+            "win_rate_pct":     win_rate_pct,
+            "n_wins":           n_wins,
+            "n_closed":         n_closed,
+            "day_pnl_dollar":   day_pnl_dollar,
+            "day_pnl_pct":      day_pnl_pct,
+            "week_pnl_pct":     week_pnl_pct,
+            "mtd_pct":          mtd_pct,
+            "spy_ytd":          spy_ytd_return,
+            "portfolio_ytd":    portfolio_ytd_return,
+            "max_dd_pct":       risk.get("max_drawdown_pct"),
+            "max_dd_date":      risk.get("max_drawdown_date"),
+            "regime":           regime,
+            "n_tickers":        len(pnl_records),
+        },
+        "leaderboards": {
+            "top_winners": profit_sorted[:3],
+            "top_losers":  list(reversed(profit_sorted))[:3],
+        },
+        "chart_data": {
+            "spend":  spend_rows,
+            "profit": profit_donut,
+            "dod":    dod,
+            "wow":    wow,
+            "mom":    mom,
+            "yoy":    yoy,
+            "dd":     dd,
+            "signal": list(sig_counts.items()),
+        },
+        "per_ticker": pnl_records,
+        "closed":     closed,
+    }
+
+
+def _export_chart_data(spreadsheet: gspread.Spreadsheet, chart_data: dict) -> None:
+    """Write the Chart Data tab — clean per-block layout, no spacer hacks.
+    Each chart block is 2 cols wide with a 1-col spacer between blocks."""
+    max_rows = max((len(chart_data.get(key, [])) for key, *_ in CHART_DATA_BLOCKS),
+                   default=0) + 1
+    width    = max(start_col + 2 for _, _, _, start_col in CHART_DATA_BLOCKS)
+    grid     = [[""] * width for _ in range(max_rows)]
+
+    for key, x_header, y_header, start_col in CHART_DATA_BLOCKS:
+        grid[0][start_col]     = x_header
+        grid[0][start_col + 1] = y_header
+        for i, (k, v) in enumerate(chart_data.get(key, []), start=1):
+            grid[i][start_col]     = k
+            grid[i][start_col + 1] = v
+
+    _write_tab(spreadsheet, TAB_CHART_DATA, grid)
+
+
+def _export_dashboard(
+    spreadsheet: gspread.Spreadsheet,
+    dash_data: dict,
+    timestamp: str,
+):
+    """Write the Dashboard tab — KPI tiles + leaderboards only. No chart data lives here.
+    Chart overlays are added afterwards by _add_dashboard_charts, referencing Chart Data."""
+    kpi = dash_data["kpi"]
+    top_winners = dash_data["leaderboards"]["top_winners"]
+    top_losers  = dash_data["leaderboards"]["top_losers"]
+
+    # ── Aggregate per-ticker P&L for donuts and leaderboards ─────────────────
+    spend_rows  : list[tuple[str, float]] = []
+    profit_rows : list[tuple[str, float]] = []
+    pnl_records : list[dict] = []
+    total_invested = total_value = total_unrealized = 0.0
+
+    def _fmt_pct_signed(v):
+        return f"{v:+.2f}%" if isinstance(v, (int, float)) else "N/A"
+
+    alpha_str = (
+        f"{(kpi['portfolio_ytd'] - kpi['spy_ytd']):+.1f}%  "
+        f"(Port {kpi['portfolio_ytd']:+.1f}% / SPY {kpi['spy_ytd']:+.1f}%)"
+        if kpi.get("portfolio_ytd") is not None and kpi.get("spy_ytd") is not None
+        else "N/A"
+    )
+    max_dd_str = (f"-{kpi['max_dd_pct']:.1f}%  ({kpi['max_dd_date']})"
+                  if kpi.get("max_dd_pct") else "N/A")
+
+    rows: list[list] = [
+        [f"PORTFOLIO DASHBOARD — as of {timestamp}"],
+        [f"Regime: {kpi['regime']}   ·   Tickers held: {kpi['n_tickers']}   ·   Closed trades: {kpi['n_closed']}"],
+        [],
+        ["Total Equity", "Total Invested", "Unrealized P&L", "Realized P&L", "Win Rate"],
+        [
+            f"${kpi['total_equity']:,.0f}",
+            f"${kpi['total_invested']:,.0f}",
+            f"${kpi['total_unrealized']:+,.0f}",
+            f"${kpi['realized_total']:+,.0f}",
+            f"{kpi['win_rate_pct']:.1f}%  ({kpi['n_wins']}/{kpi['n_closed']})",
+        ],
+        [],
+        ["Day P&L", "Week P&L", "MTD P&L", "YTD vs SPY (Alpha)", "Max Drawdown"],
+        [
+            f"${kpi['day_pnl_dollar']:+,.0f}  ({_fmt_pct_signed(kpi['day_pnl_pct'])})",
+            _fmt_pct_signed(kpi['week_pnl_pct']),
+            _fmt_pct_signed(kpi['mtd_pct']),
+            alpha_str,
+            max_dd_str,
+        ],
+        [],
+    ]
+    # Spacer rows to push leaderboards below the chart band.
+    while len(rows) < 80:
+        rows.append([])
+
+    rows.append(["TOP 3 WINNERS", "Unrealized $", "Return %", "",
+                 "TOP 3 LOSERS",  "Unrealized $", "Return %"])
+    for i in range(3):
+        w  = top_winners[i] if i < len(top_winners) else None
+        l_ = top_losers[i]  if i < len(top_losers)  else None
+        rows.append([
+            w["ticker"] if w else "",
+            f"${w['pnl']:+,.0f}" if w else "",
+            f"{w['pct']:+.2f}%"  if w else "",
+            "",
+            l_["ticker"] if l_ else "",
+            f"${l_['pnl']:+,.0f}" if l_ else "",
+            f"{l_['pct']:+.2f}%"  if l_ else "",
+        ])
+    rows.append([])
+    rows.append(["Realized P&L", "Unrealized P&L", "Total P&L"])
+    rows.append([
+        f"${kpi['realized_total']:+,.0f}",
+        f"${kpi['total_unrealized']:+,.0f}",
+        f"${kpi['realized_total'] + kpi['total_unrealized']:+,.0f}",
+    ])
+    _write_tab(spreadsheet, TAB_DASHBOARD, rows)
+
+
+def _export_looker_data(spreadsheet: gspread.Spreadsheet, dash_data: dict,
+                        portfolio_history: list[dict], fundamentals: dict) -> None:
+    """Write two Looker-friendly flat tables.
+
+    ``Looker - Daily``     : one row per trading day, full history.
+    ``Looker - Positions`` : one row per currently open ticker.
+
+    Both tabs have headers in row 1 and data in row 2+ with no preamble,
+    making them directly importable as Looker Studio data sources.
+    """
+    # ── Looker - Daily ───────────────────────────────────────────────────────
+    daily_headers = [
+        "date", "portfolio_value", "day_pnl_dollar", "day_pnl_pct",
+        "running_peak", "drawdown_dollar", "drawdown_pct",
+        "ytd_pnl_dollar", "ytd_pnl_pct",
+    ]
+    daily_rows: list[list] = [daily_headers]
+    if portfolio_history:
+        year_starts: dict[str, float] = {}
+        for h in portfolio_history:
+            yr = h["date"][:4]
+            year_starts.setdefault(yr, h["value"])
+
+        prev_val = portfolio_history[0]["value"]
+        peak     = -1e18
+        for h in portfolio_history:
+            v = float(h.get("value") or 0)
+            day_pnl_d = round(v - prev_val, 2)
+            day_pnl_p = round(day_pnl_d / prev_val * 100, 4) if prev_val else 0.0
+            if v > peak:
+                peak = v
+            dd_d = round(v - peak, 2)
+            dd_p = round(dd_d / peak * 100, 4) if peak > 0 else 0.0
+            yr_start_v = year_starts.get(h["date"][:4], v)
+            ytd_d = round(v - yr_start_v, 2)
+            ytd_p = round(ytd_d / yr_start_v * 100, 4) if yr_start_v else 0.0
+            daily_rows.append([
+                h["date"], round(v, 2),
+                day_pnl_d, day_pnl_p,
+                round(peak, 2), dd_d, dd_p,
+                ytd_d, ytd_p,
+            ])
+            prev_val = v
+    _write_tab(spreadsheet, TAB_LOOKER_DAILY, daily_rows)
+
+    # ── Looker - Positions ───────────────────────────────────────────────────
+    pos_headers = [
+        "ticker", "direction", "units", "avg_entry", "current_price",
+        "cost_basis", "current_value", "unrealized_pnl", "unrealized_pnl_pct",
+        "sector", "industry", "market_cap", "analyst_target", "pe_ratio",
+    ]
+    pos_rows: list[list] = [pos_headers]
+    for p in dash_data["per_ticker"]:
+        fund = fundamentals.get(p["ticker"], {})
+        pos_rows.append([
+            p["ticker"], p["direction"], p["units"], p["avg_entry"], p["price"],
+            p["cost"], p["value"], p["pnl"], p["pct"],
+            fund.get("sector") or "",
+            fund.get("industry") or "",
+            fund.get("market_cap") or "",
+            fund.get("analyst_target") or "",
+            fund.get("pe_ratio") or "",
+        ])
+    _write_tab(spreadsheet, TAB_LOOKER_POSITIONS, pos_rows)
+
+
+def _add_dashboard_charts(
+    spreadsheet: gspread.Spreadsheet,
+    chart_data: dict,
+) -> None:
+    """Delete existing Dashboard chart overlays and add the full set, each
+    referencing data on the Chart Data tab (not the Dashboard tab itself)."""
+    try:
+        dash_ws       = spreadsheet.worksheet(TAB_DASHBOARD)
+        chart_data_ws = spreadsheet.worksheet(TAB_CHART_DATA)
+        dash_sheet_id = dash_ws.id
+        cdata_sheet_id = chart_data_ws.id
+
+        meta   = spreadsheet.fetch_sheet_metadata()
+        charts = []
+        for sheet in meta.get("sheets", []):
+            if sheet.get("properties", {}).get("sheetId") == dash_sheet_id:
+                charts = sheet.get("charts", [])
+                break
+
+        reqs = [{"deleteEmbeddedObject": {"objectId": c["chartId"]}} for c in charts]
+
+        # Chart Data tab block layout — must match CHART_DATA_BLOCKS.
+        block_col = {key: start for key, _, _, start in CHART_DATA_BLOCKS}
+
+        # (data_key, title, type, anchor_row, anchor_col, w, h, donut)
+        chart_layout = [
+            ("spend",  "Capital Deployed by Ticker",            "PIE",    10, 0, 460, 340, True),
+            ("profit", "Unrealized P&L Share (▲ win / ▼ lose)", "PIE",    10, 8, 460, 340, True),
+            ("signal", "Composite Signal Distribution",         "PIE",    28, 0, 460, 320, True),
+            ("dod",    "Portfolio Value — DoD (last 60 days)",  "LINE",   28, 8, 460, 320, False),
+            ("wow",    "Portfolio Value — WoW (last 26 wks)",   "LINE",   46, 0, 460, 300, False),
+            ("mom",    "Portfolio Value — MoM (last 24 mo)",    "LINE",   46, 8, 460, 300, False),
+            ("yoy",    "Portfolio Value — YoY",                 "LINE",   63, 0, 460, 300, False),
+            ("dd",     "Portfolio Drawdown %",                  "COLUMN", 63, 8, 460, 300, False),
+        ]
+
+        for key, title, ctype, arow, acol, w, h, donut in chart_layout:
+            x_col      = block_col[key]
+            y_col      = x_col + 1
+            n_data     = len(chart_data.get(key, []))
+            data_end   = n_data + 1   # +1 for header row at 0
+            if n_data == 0:
+                continue
+            reqs.append(_build_dashboard_chart_request(
+                source_sheet_id = cdata_sheet_id,
+                anchor_sheet_id = dash_sheet_id,
+                title           = title,
+                chart_type      = ctype,
+                data_start_row  = 0,
+                data_end_row    = data_end,
+                x_col           = x_col,
+                y_cols          = [y_col],
+                anchor_row      = arow,
+                anchor_col      = acol,
+                width_px        = w,
+                height_px       = h,
+                is_donut        = donut,
+            ))
+
+        if reqs:
+            time.sleep(2)
+            for attempt in range(4):
+                try:
+                    spreadsheet.batch_update({"requests": reqs})
+                    log.info("Dashboard charts updated (%d old deleted, %d new added)",
+                             len(charts), len(reqs) - len(charts))
+                    return
+                except gspread.exceptions.APIError as e:
+                    if "429" in str(e) and attempt < 3:
+                        wait = 20 * (attempt + 1)
+                        log.warning("Quota hit on Dashboard charts — retrying in %ds", wait)
+                        time.sleep(wait)
+                    else:
+                        log.warning("Dashboard chart creation failed: %s", e)
+                        return
+    except Exception as exc:
+        log.warning("Dashboard chart creation failed: %s", exc)
+
+
+def _pin_dashboard_first(spreadsheet: gspread.Spreadsheet) -> None:
+    """Move the Dashboard tab to position 0 (leftmost)."""
+    try:
+        ws = spreadsheet.worksheet(TAB_DASHBOARD)
+        req = {
+            "updateSheetProperties": {
+                "properties": {"sheetId": ws.id, "index": 0},
+                "fields":     "index",
+            }
+        }
+        spreadsheet.batch_update({"requests": [req]})
+    except gspread.exceptions.APIError as e:
+        log.warning("Could not pin Dashboard tab to first position: %s", e)
+
+
 # ── Public entry points ───────────────────────────────────────────────────────
 
 def _fetch_spy_data() -> tuple[pd.DataFrame | None, dict[str, float], float | None]:
@@ -2582,6 +3212,7 @@ def run_export(trigger: str = "scheduled"):
     refresh(effective_tickers)
 
     _ensure_tabs(spreadsheet, effective_tickers)
+    _pin_dashboard_first(spreadsheet)
 
     portfolio = {r["ticker"]: r for r in get_portfolio_summary()}
     log.info("Active positions: %s", {t: len(v) for t, v in positions.items()})
@@ -2703,6 +3334,17 @@ def run_export(trigger: str = "scheduled"):
         spreadsheet, positions, fundamentals, effective_tickers,
         widget_rows, ticker_weights, regime,
     )
+    # Dashboard pipeline: compute once → write Chart Data + Looker tabs →
+    # write Dashboard visible cells → overlay charts referencing Chart Data.
+    dash_data = _compute_dashboard_data(
+        positions, portfolio, fundamentals, ticker_weights, regime,
+        portfolio_history, risk, spy_ytd_return, portfolio_ytd_return,
+    )
+    _export_chart_data(spreadsheet, dash_data["chart_data"])
+    _export_dashboard(spreadsheet, dash_data, timestamp)
+    _add_dashboard_charts(spreadsheet, dash_data["chart_data"])
+    _export_looker_data(spreadsheet, dash_data, portfolio_history, fundamentals)
+
     _export_live_overview(
         spreadsheet, positions, fundamentals, effective_tickers,
         portfolio, widget_rows, ticker_weights, regime,
