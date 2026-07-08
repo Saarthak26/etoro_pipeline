@@ -11,7 +11,8 @@ The Screener tab (ranking + backtest + charts) is refreshed only at open and clo
 hourly and midnight cadences (see run_export's SCREENER_TRIGGERS in sheets_exporter.py).
   4. Daily OHLCV  — 23:00 Berlin  daily    → position sync + candle refresh + full export
   5. NY midnight  — 00:00 New York daily   → full export
-  6. Daily sync   — 09:00 Berlin  daily    → eToro position sync (positions.json)
+  6. Pre-open sync — 15:25 Berlin Mon–Fri  → eToro position sync (5 min before NYSE open)
+  7. Pre-close sync — 21:55 Berlin Mon–Fri → eToro position sync (5 min before NYSE close)
 
 Every DB-writing job holds an advisory file lock (pipeline_lock.py), so a manual
 CLI command (export/backfill/…) and a scheduled job can never write the database
@@ -153,17 +154,35 @@ def run_scheduler():
         misfire_grace_time=1800,
     )
 
-    # ── 6. Daily position sync — 09:00 Berlin daily ──────────────────────────
+    # ── 6. Position sync — 5 min before NYSE open (09:30 ET = 15:30 Berlin) ──
+    #     Runs just ahead of the open/close full exports so positions.json is
+    #     fresh going in, and offset a few minutes so it never races those jobs
+    #     for the write-lock.
     scheduler.add_job(
-        func=lambda: _locked("sync_positions", _sync_positions_job),
+        func=lambda: _locked("sync_open", _sync_positions_job),
         trigger=CronTrigger(
-            hour=9, minute=0,
+            day_of_week="mon-fri",
+            hour=15, minute=25,
             timezone=SCHEDULER_TZ,
         ),
-        id="daily_sync_positions",
-        name="eToro daily position sync",
+        id="sync_positions_open",
+        name="eToro position sync — pre-open (NYSE 09:30 ET)",
         replace_existing=True,
-        misfire_grace_time=3600,
+        misfire_grace_time=1800,
+    )
+
+    # ── 7. Position sync — 5 min before NYSE close (16:00 ET = 22:00 Berlin) ──
+    scheduler.add_job(
+        func=lambda: _locked("sync_close", _sync_positions_job),
+        trigger=CronTrigger(
+            day_of_week="mon-fri",
+            hour=21, minute=55,
+            timezone=SCHEDULER_TZ,
+        ),
+        id="sync_positions_close",
+        name="eToro position sync — pre-close (NYSE 16:00 ET)",
+        replace_existing=True,
+        misfire_grace_time=1800,
     )
 
     # ── Graceful shutdown on SIGTERM / Ctrl+C ─────────────────────────────────
@@ -177,16 +196,17 @@ def run_scheduler():
 
     log.info(
         "Scheduler started.\n"
-        "  • Daily sync   (positions)    : 09:00 %s (daily)\n"
+        "  • Pre-open sync (positions)   : 15:25 %s (Mon–Fri, NYSE open)\n"
         "  • Market open  (full export)  : 15:30 %s (Mon–Fri)\n"
         "  • Hourly       (live-only)    : 16:30–21:30 %s (Mon–Fri)\n"
+        "  • Pre-close sync (positions)  : 21:55 %s (Mon–Fri, NYSE close)\n"
         "  • Market close (full export)  : 22:00 %s (Mon–Fri)\n"
         "  • Daily OHLCV  (full export)  : %02d:%02d %s\n"
         "  • NY midnight  (full export)  : 00:00 America/New_York (daily)\n"
         "All DB-writing jobs hold an advisory lock — a manual pipeline command and a\n"
         "scheduled job can never write the database at the same time.\n"
         "Press Ctrl+C to stop.",
-        SCHEDULER_TZ, SCHEDULER_TZ, SCHEDULER_TZ, SCHEDULER_TZ,
+        SCHEDULER_TZ, SCHEDULER_TZ, SCHEDULER_TZ, SCHEDULER_TZ, SCHEDULER_TZ,
         SCHEDULER_HOUR, SCHEDULER_MINUTE, SCHEDULER_TZ,
     )
 

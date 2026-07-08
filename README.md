@@ -601,7 +601,7 @@ Value-weighting ensures a large $50k position held for 2 years contributes more 
 
 ## 11. Scheduler
 
-`scheduler.py` runs an APScheduler `BlockingScheduler` daemon with **6 jobs**. Times in Berlin unless noted.
+`scheduler.py` runs an APScheduler `BlockingScheduler` daemon with **7 jobs**. Times in Berlin unless noted.
 
 | # | Job | Cron | What it does | Misfire grace |
 |---|-----|------|--------------|---------------|
@@ -610,7 +610,10 @@ Value-weighting ensures a large $50k position held for 2 years contributes more 
 | 3 | Market close | 22:00 Mon–Fri | Full Sheets export | 1800 s |
 | 4 | Daily OHLCV refresh | 23:00 daily | Position sync + OHLCV refresh + full Sheets export | 3600 s |
 | 5 | NY midnight | 00:00 `America/New_York` daily (= 06:00 Berlin) | Full Sheets export — second daily push so the dashboard reflects the latest data at the start of each NY trading day. Provides natural redundancy if job 4 fails. | 1800 s |
-| 6 | Daily position sync | 09:00 daily | eToro → `positions.json` sync, so holdings are fresh at the start of the day independent of the export runs. | 3600 s |
+| 6 | Pre-open position sync | 15:25 Mon–Fri | eToro → `positions.json` sync, 5 min before NYSE open (09:30 ET) so holdings are fresh going into the open export. | 1800 s |
+| 7 | Pre-close position sync | 21:55 Mon–Fri | eToro → `positions.json` sync, 5 min before NYSE close (16:00 ET). | 1800 s |
+
+The two position syncs are offset 5 minutes ahead of the open/close full exports so they never race those jobs for the write-lock (a same-minute collision could otherwise skip a full export).
 
 **Concurrency lock.** Every DB-writing job holds an advisory file lock (`pipeline_lock.py`, `fcntl.flock` on `market_data.db.lock`). A manual CLI command that writes the database (`export` / `backfill` / `refresh` / `sync-positions` / `screener-backfill` / `update-macro` / `import-statement`) acquires the same lock and **aborts with a clear message if the scheduler is mid-write** (and vice-versa — a scheduled job skips to its next run if a manual command holds it). This structurally prevents the concurrent-writer race that can corrupt the SQLite file. The kernel releases the lock automatically if a process dies, so a crash never leaves a stale lock.
 
@@ -737,10 +740,12 @@ To add a new entry: prepend a new `### vX.Y` block immediately below this line.
 - The kernel frees the lock automatically on process death — a crash never leaves a
   stale lock. `main.py` dispatch refactored into `_dispatch()` wrapped by the lock.
 
-#### Scheduler — 6th job: daily position sync
+#### Scheduler — position-sync jobs around NYSE open & close
 
-- New job: `sync_positions()` at **09:00 Berlin daily**, so `positions.json` is fresh at
-  the start of the day independent of the market-hours export runs. Also lock-protected.
+- Two new `sync_positions()` jobs timed to the exchange: **15:25 Berlin** (5 min before
+  NYSE open, 09:30 ET) and **21:55 Berlin** (5 min before NYSE close, 16:00 ET), Mon–Fri,
+  so `positions.json` is fresh going into the open/close exports. Offset 5 min ahead of
+  those exports so they never race for the write-lock. Both lock-protected.
 
 ---
 
