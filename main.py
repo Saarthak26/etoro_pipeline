@@ -14,6 +14,9 @@ Commands:
     python main.py export                — Manually push all data to Google Sheets now
     python main.py import-statement <f>  — Import closed trades from an eToro account statement CSV
     python main.py update-macro [TICK…] — Refresh daily macro cache (news, analyst targets) for all or specific tickers
+    python main.py screener-backfill market — Backfill the whole liquid US market from yfinance (~6.9k names, one-time)
+    python main.py screen [wide|sp500|market]   — Print today's ranked pre-breakout list (market = whole US market)
+    python main.py backtest [wide|sp500|market] — Run the walk-forward backtest and print metrics (market = whole US market)
 
 Set your API keys in environment variables before running:
     export ETORO_API_KEY="your_public_key"
@@ -81,6 +84,30 @@ def main():
         tickers = args[1:] or None
         refresh_all_macro(tickers)
 
+    elif command == "screener-backfill":
+        import screener as scr
+        if "market" in args[1:]:
+            # Whole liquid US market: fetch OHLCV, derive the liquid active set, cache sectors.
+            result = scr.backfill_yfinance(scr.load_us_market(), chunk=100)
+            active = scr.build_active_universe()
+            scr.backfill_sectors(active)
+            print(f"\nWhole-market backfill: {result['stored']:,} rows across "
+                  f"{result['symbols']} symbols ({len(result['failed'])} failed); "
+                  f"{len(active)} liquid names in the active universe.")
+        else:
+            tickers = [t.upper() for t in args[1:]] or scr.discovery_universe()
+            result = scr.backfill_yfinance(tickers)
+            print(f"\nyfinance backfill: {result['stored']:,} rows across "
+                  f"{result['symbols']} symbols ({len(result['failed'])} failed).")
+
+    elif command == "screen":
+        from screener import screen_today
+        screen_today(_screen_universe(args[1:]))
+
+    elif command == "backtest":
+        from screener import walk_forward_backtest
+        walk_forward_backtest(_screen_universe(args[1:]))
+
     elif command == "import-statement":
         if len(args) < 2:
             print("Usage: python main.py import-statement <path_to_etoro_statement.csv>")
@@ -92,6 +119,21 @@ def main():
     else:
         print(__doc__)
         sys.exit(0)
+
+
+def _screen_universe(flags: list[str]):
+    """Resolve the screener universe from CLI flags:
+        'market' → whole liquid US market (∪ holdings), 'sp500' → S&P 500 (∪ holdings),
+        'wide' → 45-name stress set, default → 24 large caps."""
+    import screener as scr
+    from config import SCREEN_UNIVERSE_WIDE
+    if "market" in flags:
+        return scr.discovery_universe()
+    if "sp500" in flags:
+        return sorted(set(scr.load_sp500()) | scr.held_tickers())
+    if "wide" in flags:
+        return SCREEN_UNIVERSE_WIDE
+    return None
 
 
 def _cmd_query(args: list[str]):

@@ -6,3 +6,5 @@ pandas>=2.0.0
 numpy>=1.26.0
 ta>=0.11.0
 yfinance>=0.2.40
+xgboost>=2.0.0          # pre-breakout screener scorer (screener.py)
+scikit-learn>=1.3.0     # HistGradientBoosting fallback for the scorer

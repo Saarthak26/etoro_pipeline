@@ -94,3 +94,77 @@ SHEETS_OPEN_MINUTE  = 30
 SHEETS_CLOSE_HOUR   = 16
 SHEETS_CLOSE_MINUTE = 0
 SHEETS_MARKET_TZ    = "America/New_York"
+
+# ── Pre-breakout screener + walk-forward backtester ───────────────────────────
+# All tunables for screener.py live here. See screener.py for the full logic.
+#
+# Data note: this pipeline stores OHLCV in SQLite (market_data.db), not BigQuery.
+# The screener reuses database.get_connection(). The stored `close` is already
+# split-adjusted (verified against NVDA 10:1 / AMZN 20:1), so we treat it as the
+# adjusted-close series. There is no market-cap column, so the "market cap or
+# dollar-volume floor" is implemented as a dollar-volume floor (SCREEN_MIN_DOLLAR_VOL).
+SCREEN = {
+    "HISTORY_DAYS":     400,      # Bars per symbol for today's `screen` ranking (recent state)
+    "BACKTEST_HISTORY_DAYS": 2000,  # Bars per symbol for the walk-forward (use full history for a real multi-year test)
+    "FORWARD_WINDOW":   60,       # Trading days looked ahead when building the training label
+    "RALLY_THRESHOLD":  0.20,     # Label = 1 if max forward gain reaches +20%
+    # ── Multi-horizon growth-window prediction ─────────────────────────────────
+    # One classifier per horizon predicts "does the +RALLY_THRESHOLD move happen
+    # within N trading days?". The predicted growth window is the earliest horizon
+    # whose probability clears WINDOW_PROB_THRESHOLD. PRIMARY_HORIZON drives the
+    # top-N pick ranking (kept near MAX_HOLD_DAYS so ranking and the trade sim agree).
+    "HORIZONS":         [10, 30, 90, 180],  # Trading-day horizons for the timing models
+    "PRIMARY_HORIZON":  90,       # Horizon whose score ranks the picks
+    "WINDOW_PROB_THRESHOLD": 0.5, # Earliest horizon with P >= this = predicted window
+    "REBALANCE_FREQ":   "W",      # Weekly rebalance (last real trading day of each ISO week)
+    "TOP_N":            5,        # Positions opened per rebalance
+    "STOP_LOSS":        0.10,     # 10% hard stop
+    "TAKE_PROFIT":      0.20,     # 20% take profit
+    "MAX_HOLD_DAYS":    90,       # Time exit
+    "FEE_BPS":          10,       # Fee per side, basis points (10 bps = 0.10%)
+    "SLIPPAGE_BPS":     10,       # Slippage per side, basis points
+    "MIN_PRICE":        5.0,      # Price filter (drop sub-$5 names)
+    "MIN_DOLLAR_VOL":   20_000_000,  # Liquidity floor: 20-day avg dollar volume, USD
+    "WARMUP_DAYS":      252,      # Bars required before a symbol is scoreable (252d range)
+    "RETRAIN_EVERY":    8,        # Walk-forward: retrain the scorer every N rebalances
+                                  # (=1 retrains weekly; higher is faster on a big universe,
+                                  #  still strict train-before-test — the model is only reused
+                                  #  forward, never trained on future data)
+    # ── Tilt / neutralization levers (compared in the walk-forward) ────────────
+    "LABEL_MODE":       "fixed",  # "fixed"       -> +RALLY_THRESHOLD in FORWARD_WINDOW days
+                                  # "vol_adjusted"-> target scaled to the stock's own trailing
+                                  #                  volatility, so calm & wild names are judged
+                                  #                  on comparable moves (removes the vol/tech tilt)
+    "VOL_TARGET_K":     2.5,      # vol_adjusted target = max(RALLY_THRESHOLD, K · σ_fwd),
+                                  #   σ_fwd = trailing daily vol × sqrt(FORWARD_WINDOW)
+    "MAX_PER_SECTOR":   None,     # None -> no cap (keep tilt); e.g. 2 -> ≤2 picks per sector
+}
+
+# Broad discovery universe: the S&P 500 constituents, backfilled through the eToro
+# pipeline into market_data.db. Loaded from this file (one ticker per line) so the
+# screener can find NEW names you don't already own — not just your watchlist.
+SP500_PATH = os.path.join(os.path.dirname(__file__), "sp500.txt")
+
+# Whole liquid US market: NASDAQ+NYSE common stocks (nasdaqtrader.com listings),
+# one Yahoo-form ticker per line. This is the broad discovery pool so the screener
+# can find winners that are NOT in the S&P 500 (QBTS, SanDisk, ASTS, RKLB, …).
+US_MARKET_PATH = os.path.join(os.path.dirname(__file__), "us_market.txt")
+# Cache of the liquidity-filtered active scan set (derived from screener_candles).
+ACTIVE_UNIVERSE_PATH = os.path.join(os.path.dirname(__file__), "active_universe.txt")
+
+# Test universe: ~24 liquid US large caps. Names already backfilled in the DB are
+# reused; the rest are pulled through the existing eToro pipeline (backfill).
+SCREEN_UNIVERSE = [
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOG", "META", "AVGO", "TSLA",
+    "JPM",  "WMT",  "ORCL", "COST", "HD",   "KO",   "JNJ",  "XOM",
+    "PG",   "MA",   "V",    "UNH",  "AMD",  "CRM",  "NFLX", "BAC",
+]
+
+# Stress-test universe: the large caps above plus the higher-beta small/mid names
+# already cached in the DB. Several of these (CRBU, LASR, NVTS, QBTS, IONQ, BW)
+# stumbled badly, which reduces the survivorship tilt of the pure-large-cap set.
+SCREEN_UNIVERSE_WIDE = SCREEN_UNIVERSE + [
+    "ACET", "ANET", "ASML", "ASTS", "BW",   "CRBU", "DELL", "DVN",
+    "FORM", "IONQ", "LASR", "MU",   "NBIS", "NVTS", "QBTS", "RKLB",
+    "SHOP", "SNDK", "STX.US", "TEAM", "WDC",
+]

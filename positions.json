@@ -1,677 +1,706 @@
 [
   {
-    "ticker": "QBTS",
-    "direction": "BUY",
-    "units": 12.0,
-    "open_price": 16.66,
-    "open_date": "14-4-2026",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "RKLB",
-    "direction": "BUY",
-    "units": 1.5,
-    "open_price": 60.3,
-    "open_date": "2026-03-31",
-    "stop_loss": null,
-    "take_profit": 663.3
-  },
-  {
-    "ticker": "RKLB",
-    "direction": "BUY",
-    "units": 4.136073,
-    "open_price": 67.3,
-    "open_date": "9-4-2026",
-    "stop_loss": null,
-    "take_profit": 740.3
-  },
-  {
-    "ticker": "MU",
-    "direction": "BUY",
-    "units": 0.357034,
-    "open_price": 427.6001,
-    "open_date": "13-4-2026",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "NVDA",
-    "direction": "BUY",
-    "units": 1.552794,
-    "open_price": 42.498,
-    "open_date": "2023-10-25",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "QBTS",
-    "direction": "BUY",
-    "units": 7.729618,
-    "open_price": 0.9955,
-    "open_date": "14-8-2024",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "QBTS",
-    "direction": "BUY",
-    "units": 12.523481,
-    "open_price": 15.97,
-    "open_date": "2026-03-23",
-    "stop_loss": null,
-    "take_profit": 175.67
-  },
-  {
-    "ticker": "NVDA",
-    "direction": "BUY",
-    "units": 1.0,
-    "open_price": 212.0,
-    "open_date": "2026-04-28",
-    "stop_loss": null,
-    "take_profit": 2332.0
-  },
-  {
-    "ticker": "NBIS",
-    "direction": "BUY",
-    "units": 1.266477,
-    "open_price": 197.24,
-    "open_date": "19-5-2026",
-    "stop_loss": null,
-    "take_profit": 2169.64
-  },
-  {
-    "ticker": "MU",
-    "direction": "BUY",
-    "units": 0.582996,
-    "open_price": 360.96,
-    "open_date": "2026-03-27",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "QBTS",
-    "direction": "BUY",
-    "units": 13.277141,
-    "open_price": 1.13,
-    "open_date": "2024-06-27",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "AMD",
-    "direction": "BUY",
-    "units": 0.596037,
-    "open_price": 118.4,
-    "open_date": "4-2-2025",
-    "stop_loss": null,
-    "take_profit": 1302.4
-  },
-  {
-    "ticker": "WDC",
-    "direction": "BUY",
-    "units": 0.5,
-    "open_price": 358.97,
-    "open_date": "14-4-2026",
-    "stop_loss": null,
-    "take_profit": 3948.77
-  },
-  {
-    "ticker": "BW",
-    "direction": "BUY",
-    "units": 13.561728,
-    "open_price": 11.34,
-    "open_date": "2026-02-04",
-    "stop_loss": null,
-    "take_profit": 124.74
-  },
-  {
-    "ticker": "GOOG",
-    "direction": "BUY",
-    "units": 0.378924,
-    "open_price": 330.33,
-    "open_date": "14-4-2026",
-    "stop_loss": null,
-    "take_profit": 3633.63
-  },
-  {
-    "ticker": "IONQ",
-    "direction": "BUY",
-    "units": 3.004189,
-    "open_price": 33.67,
-    "open_date": "25-3-2026",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "ASTS",
-    "direction": "BUY",
-    "units": 2.029008,
-    "open_price": 24.81,
-    "open_date": "27-5-2025",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "BW",
-    "direction": "BUY",
-    "units": 9.708737,
-    "open_price": 1.0197,
-    "open_date": "2025-08-04",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "SHOP",
+    "ticker": "AAPL",
+    "position_id": "3508918331",
     "direction": "BUY",
     "units": 2.5,
-    "open_price": 103.26,
-    "open_date": "19-5-2026",
+    "open_price": 313.24,
+    "open_date": "7-7-2026",
     "stop_loss": null,
-    "take_profit": 1135.86
+    "take_profit": 3445.53,
+    "total_fees": 0.0
   },
   {
     "ticker": "AMZN",
+    "position_id": "3032603714",
     "direction": "BUY",
     "units": 1.000484,
     "open_price": 206.4,
-    "open_date": "2025-06-02",
+    "open_date": "2-6-2025",
     "stop_loss": null,
-    "take_profit": 2270.4
-  },
-  {
-    "ticker": "RKLB",
-    "direction": "BUY",
-    "units": 1.2,
-    "open_price": 80.33,
-    "open_date": "28-4-2026",
-    "stop_loss": null,
-    "take_profit": 883.66
-  },
-  {
-    "ticker": "JPM",
-    "direction": "BUY",
-    "units": 1.0,
-    "open_price": 300.09,
-    "open_date": "19-5-2026",
-    "stop_loss": null,
-    "take_profit": 3300.99
-  },
-  {
-    "ticker": "LASR",
-    "direction": "BUY",
-    "units": 3.168567,
-    "open_price": 15.78,
-    "open_date": "2025-05-28",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "QBTS",
-    "direction": "BUY",
-    "units": 21.382751,
-    "open_price": 14.03,
-    "open_date": "10-4-2026",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "NVDA",
-    "direction": "BUY",
-    "units": 1.0,
-    "open_price": 201.07,
-    "open_date": "6-5-2026",
-    "stop_loss": null,
-    "take_profit": 2211.77
-  },
-  {
-    "ticker": "NVDA",
-    "direction": "BUY",
-    "units": 0.93913,
-    "open_price": 40.737,
-    "open_date": "30-10-2023",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "BW",
-    "direction": "BUY",
-    "units": 5.586592,
-    "open_price": 8.95,
-    "open_date": "2-3-2026",
-    "stop_loss": null,
-    "take_profit": 98.45
-  },
-  {
-    "ticker": "LASR",
-    "direction": "BUY",
-    "units": 0.429256,
-    "open_price": 12.16,
-    "open_date": "12-5-2025",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "ASTS",
-    "direction": "BUY",
-    "units": 1.005326,
-    "open_price": 37.55,
-    "open_date": "2025-09-11",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "AMD",
-    "direction": "BUY",
-    "units": 0.769445,
-    "open_price": 214.44,
-    "open_date": "2025-12-22",
-    "stop_loss": null,
-    "take_profit": 2358.84
-  },
-  {
-    "ticker": "MU",
-    "direction": "BUY",
-    "units": 0.442559,
-    "open_price": 361.9399,
-    "open_date": "2026-03-27",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "MU",
-    "direction": "BUY",
-    "units": 0.47,
-    "open_price": 328.99,
-    "open_date": "2026-03-31",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "NVDA",
-    "direction": "BUY",
-    "units": 1.525422,
-    "open_price": 96.66,
-    "open_date": "7-4-2025",
-    "stop_loss": null,
-    "take_profit": 1063.26
-  },
-  {
-    "ticker": "GOOG",
-    "direction": "BUY",
-    "units": 1.0,
-    "open_price": 397.82,
-    "open_date": "2026-05-18",
-    "stop_loss": null,
-    "take_profit": 4376.02
-  },
-  {
-    "ticker": "BW",
-    "direction": "BUY",
-    "units": 4.395988,
-    "open_price": 1.415,
-    "open_date": "7-8-2025",
-    "stop_loss": null,
-    "take_profit": null
+    "take_profit": 2270.4,
+    "total_fees": 0.0
   },
   {
     "ticker": "AMZN",
+    "position_id": "2546201877",
     "direction": "BUY",
-    "units": 1.002826,
+    "units": 0.501283,
     "open_price": 120.32,
-    "open_date": "2023-10-26",
+    "open_date": "26-10-2023",
     "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "MU",
-    "direction": "BUY",
-    "units": 0.70457,
-    "open_price": 713.91,
-    "open_date": "19-5-2026",
-    "stop_loss": null,
-    "take_profit": 7853.01
-  },
-  {
-    "ticker": "WDC",
-    "direction": "BUY",
-    "units": 1.0,
-    "open_price": 252.17,
-    "open_date": "9-3-2026",
-    "stop_loss": null,
-    "take_profit": 2773.87
-  },
-  {
-    "ticker": "BW",
-    "direction": "BUY",
-    "units": 8.331805,
-    "open_price": 0.8165,
-    "open_date": "20-5-2025",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "ASTS",
-    "direction": "BUY",
-    "units": 2.005615,
-    "open_price": 24.9299,
-    "open_date": "20-5-2025",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "NVDA",
-    "direction": "BUY",
-    "units": 2.001468,
-    "open_price": 217.84,
-    "open_date": "27-4-2026",
-    "stop_loss": null,
-    "take_profit": 2396.24
-  },
-  {
-    "ticker": "MU",
-    "direction": "BUY",
-    "units": 0.625837,
-    "open_price": 711.75,
-    "open_date": "2026-05-19",
-    "stop_loss": null,
-    "take_profit": 7829.25
-  },
-  {
-    "ticker": "NVDA",
-    "direction": "BUY",
-    "units": 1.0,
-    "open_price": 176.95,
-    "open_date": "2026-04-06",
-    "stop_loss": null,
-    "take_profit": 1946.45
-  },
-  {
-    "ticker": "NVDA",
-    "direction": "BUY",
-    "units": 1.740221,
-    "open_price": 117.6,
-    "open_date": "4-3-2025",
-    "stop_loss": null,
-    "take_profit": 1293.49
-  },
-  {
-    "ticker": "NVDA",
-    "direction": "BUY",
-    "units": 1.0,
-    "open_price": 200.87,
-    "open_date": "6-5-2026",
-    "stop_loss": null,
-    "take_profit": 2209.57
+    "take_profit": null,
+    "total_fees": 0.0
   },
   {
     "ticker": "AMZN",
+    "position_id": "2523771034",
     "direction": "BUY",
     "units": 0.39578,
     "open_price": 126.08,
     "open_date": "27-9-2023",
     "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "AMD",
-    "direction": "BUY",
-    "units": 0.39372,
-    "open_price": 92.94,
-    "open_date": "11-4-2025",
-    "stop_loss": null,
-    "take_profit": 1022.34
-  },
-  {
-    "ticker": "RKLB",
-    "direction": "BUY",
-    "units": 2.0,
-    "open_price": 80.2,
-    "open_date": "6-5-2026",
-    "stop_loss": null,
-    "take_profit": 882.2
-  },
-  {
-    "ticker": "DVN",
-    "direction": "BUY",
-    "units": 4.125412,
-    "open_price": 48.48,
-    "open_date": "15-5-2026",
-    "stop_loss": null,
-    "take_profit": 533.28
-  },
-  {
-    "ticker": "WMT",
-    "direction": "BUY",
-    "units": 2.0,
-    "open_price": 134.09,
-    "open_date": "2026-05-19",
-    "stop_loss": null,
-    "take_profit": 1474.99
-  },
-  {
-    "ticker": "ASTS",
-    "direction": "BUY",
-    "units": 0.99,
-    "open_price": 101.65,
-    "open_date": "16-10-2025",
-    "stop_loss": null,
-    "take_profit": 1118.11
-  },
-  {
-    "ticker": "MSFT",
-    "direction": "BUY",
-    "units": 1.0,
-    "open_price": 417.0,
-    "open_date": "15-5-2026",
-    "stop_loss": null,
-    "take_profit": 4586.34
-  },
-  {
-    "ticker": "ASTS",
-    "direction": "BUY",
-    "units": 1.742996,
-    "open_price": 28.67,
-    "open_date": "4-6-2025",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "IONQ",
-    "direction": "BUY",
-    "units": 0.67,
-    "open_price": 28.76,
-    "open_date": "31-3-2026",
-    "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "GOOG",
-    "direction": "BUY",
-    "units": 0.645554,
-    "open_price": 336.3,
-    "open_date": "2026-04-22",
-    "stop_loss": null,
-    "take_profit": 3699.3
-  },
-  {
-    "ticker": "BW",
-    "direction": "BUY",
-    "units": 16.846361,
-    "open_price": 14.84,
-    "open_date": "28-4-2026",
-    "stop_loss": null,
-    "take_profit": 163.24
+    "take_profit": null,
+    "total_fees": 0.0
   },
   {
     "ticker": "AMZN",
+    "position_id": "3436461539",
     "direction": "BUY",
     "units": 0.43,
     "open_price": 272.53,
     "open_date": "8-5-2026",
     "stop_loss": null,
-    "take_profit": 2997.83
+    "take_profit": 2997.83,
+    "total_fees": 0.0
   },
   {
     "ticker": "AMZN",
+    "position_id": "2990158740",
     "direction": "BUY",
-    "units": 1.252984,
+    "units": 0.807335,
     "open_price": 174.24,
-    "open_date": "2025-04-07",
+    "open_date": "7-4-2025",
     "stop_loss": null,
-    "take_profit": 1916.64
+    "take_profit": 1916.64,
+    "total_fees": 0.0
   },
   {
     "ticker": "AMZN",
+    "position_id": "2970973391",
     "direction": "BUY",
     "units": 1.014198,
     "open_price": 197.2,
     "open_date": "14-3-2025",
     "stop_loss": null,
-    "take_profit": 2169.2
+    "take_profit": 2169.2,
+    "total_fees": 0.0
   },
   {
     "ticker": "AMZN",
+    "position_id": "2973552791",
     "direction": "BUY",
     "units": 1.549987,
     "open_price": 193.55,
     "open_date": "19-3-2025",
     "stop_loss": null,
-    "take_profit": 2129.05
+    "take_profit": 2129.05,
+    "total_fees": 0.0
   },
   {
-    "ticker": "MSFT",
+    "ticker": "AMZN",
+    "position_id": "2530704349",
     "direction": "BUY",
-    "units": 2.0,
-    "open_price": 417.63,
-    "open_date": "2026-05-15",
+    "units": 0.210827,
+    "open_price": 126.17,
+    "open_date": "4-10-2023",
     "stop_loss": null,
-    "take_profit": 4593.93
+    "take_profit": null,
+    "total_fees": 0.0
   },
   {
-    "ticker": "QBTS",
+    "ticker": "WDC",
+    "position_id": "3403448907",
     "direction": "BUY",
-    "units": 5.081399,
-    "open_price": 1.9855,
-    "open_date": "21-11-2024",
+    "units": 0.5,
+    "open_price": 358.97,
+    "open_date": "14-4-2026",
     "stop_loss": null,
-    "take_profit": null
+    "take_profit": 3948.77,
+    "total_fees": -0.05
   },
   {
-    "ticker": "AMD",
+    "ticker": "WDC",
+    "position_id": "3356258129",
     "direction": "BUY",
-    "units": 0.500594,
-    "open_price": 162.7,
-    "open_date": "10-9-2025",
+    "units": 0.65668,
+    "open_price": 252.17,
+    "open_date": "9-3-2026",
     "stop_loss": null,
-    "take_profit": 1789.7
+    "take_profit": 2773.87,
+    "total_fees": -0.1
   },
   {
-    "ticker": "BW",
+    "ticker": "WDC",
+    "position_id": "3485834396",
     "direction": "BUY",
-    "units": 6.759109,
-    "open_price": 2.1572,
-    "open_date": "5-9-2025",
+    "units": 1.0,
+    "open_price": 711.6,
+    "open_date": "17-6-2026",
     "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "LASR",
-    "direction": "BUY",
-    "units": 4.313443,
-    "open_price": 13.91,
-    "open_date": "20-5-2025",
-    "stop_loss": null,
-    "take_profit": null
+    "take_profit": 7827.6,
+    "total_fees": 0.0
   },
   {
     "ticker": "MU",
+    "position_id": "3510250733",
     "direction": "BUY",
-    "units": 0.18278,
-    "open_price": 119.8,
-    "open_date": "15-7-2025",
+    "units": 2.0,
+    "open_price": 910.3,
+    "open_date": "8-7-2026",
     "stop_loss": null,
-    "take_profit": null
-  },
-  {
-    "ticker": "ASTS",
-    "direction": "BUY",
-    "units": 4.104195,
-    "open_price": 94.63,
-    "open_date": "19-3-2026",
-    "stop_loss": null,
-    "take_profit": 1040.6
-  },
-  {
-    "ticker": "IONQ",
-    "direction": "BUY",
-    "units": 3.0,
-    "open_price": 29.24,
-    "open_date": "2026-04-02",
-    "stop_loss": null,
-    "take_profit": null
+    "take_profit": 10006.81,
+    "total_fees": 0.0
   },
   {
     "ticker": "NVDA",
+    "position_id": "2545536003",
+    "direction": "BUY",
+    "units": 0.867262,
+    "open_price": 42.498,
+    "open_date": "25-10-2023",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": -0.2092
+  },
+  {
+    "ticker": "NVDA",
+    "position_id": "3418855053",
+    "direction": "BUY",
+    "units": 1.0,
+    "open_price": 212.0,
+    "open_date": "28-4-2026",
+    "stop_loss": null,
+    "take_profit": 2332.0,
+    "total_fees": -0.18
+  },
+  {
+    "ticker": "NVDA",
+    "position_id": "3429817669",
+    "direction": "BUY",
+    "units": 1.0,
+    "open_price": 201.07,
+    "open_date": "6-5-2026",
+    "stop_loss": null,
+    "take_profit": 2211.77,
+    "total_fees": -0.18
+  },
+  {
+    "ticker": "NVDA",
+    "position_id": "2549017470",
+    "direction": "BUY",
+    "units": 0.469565,
+    "open_price": 40.737,
+    "open_date": "30-10-2023",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": -0.123
+  },
+  {
+    "ticker": "NVDA",
+    "position_id": "2990150323",
+    "direction": "BUY",
+    "units": 0.762746,
+    "open_price": 96.66,
+    "open_date": "7-4-2025",
+    "stop_loss": null,
+    "take_profit": 1063.26,
+    "total_fees": -0.1497
+  },
+  {
+    "ticker": "NVDA",
+    "position_id": "3417749481",
+    "direction": "BUY",
+    "units": 2.001468,
+    "open_price": 217.84,
+    "open_date": "27-4-2026",
+    "stop_loss": null,
+    "take_profit": 2396.24,
+    "total_fees": -0.35
+  },
+  {
+    "ticker": "NVDA",
+    "position_id": "2960208883",
+    "direction": "BUY",
+    "units": 1.740221,
+    "open_price": 117.6,
+    "open_date": "4-3-2025",
+    "stop_loss": null,
+    "take_profit": 1293.49,
+    "total_fees": -0.35
+  },
+  {
+    "ticker": "NVDA",
+    "position_id": "3429815883",
+    "direction": "BUY",
+    "units": 1.0,
+    "open_price": 200.87,
+    "open_date": "6-5-2026",
+    "stop_loss": null,
+    "take_profit": 2209.57,
+    "total_fees": -0.18
+  },
+  {
+    "ticker": "NVDA",
+    "position_id": "3444943697",
     "direction": "BUY",
     "units": 2.0,
     "open_price": 227.05,
     "open_date": "15-5-2026",
     "stop_loss": null,
-    "take_profit": 2496.78
+    "take_profit": 2496.78,
+    "total_fees": -0.35
   },
   {
-    "ticker": "AMZN",
+    "ticker": "NVDA",
+    "position_id": "3462382898",
     "direction": "BUY",
-    "units": 0.210827,
-    "open_price": 126.17,
-    "open_date": "2023-10-04",
+    "units": 1.0,
+    "open_price": 221.71,
+    "open_date": "1-6-2026",
     "stop_loss": null,
-    "take_profit": null
+    "take_profit": 2438.81,
+    "total_fees": -0.18
+  },
+  {
+    "ticker": "TVRD",
+    "position_id": "3510677303",
+    "direction": "BUY",
+    "units": 100.639658,
+    "open_price": 4.64,
+    "open_date": "8-7-2026",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "AMD",
+    "position_id": "2934410556",
+    "direction": "BUY",
+    "units": 0.596037,
+    "open_price": 118.4,
+    "open_date": "4-2-2025",
+    "stop_loss": null,
+    "take_profit": 1302.4,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "AMD",
+    "position_id": "3233561221",
+    "direction": "BUY",
+    "units": 0.769445,
+    "open_price": 214.44,
+    "open_date": "22-12-2025",
+    "stop_loss": null,
+    "take_profit": 2358.84,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "AMD",
+    "position_id": "2995598084",
+    "direction": "BUY",
+    "units": 0.39372,
+    "open_price": 92.94,
+    "open_date": "11-4-2025",
+    "stop_loss": null,
+    "take_profit": 1022.34,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "AMD",
+    "position_id": "3122669694",
+    "direction": "BUY",
+    "units": 0.500594,
+    "open_price": 162.7,
+    "open_date": "10-9-2025",
+    "stop_loss": null,
+    "take_profit": 1789.7,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "FISV",
+    "position_id": "3508933346",
+    "direction": "BUY",
+    "units": 4.0,
+    "open_price": 53.75,
+    "open_date": "7-7-2026",
+    "stop_loss": null,
+    "take_profit": 591.14,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "ASML",
+    "position_id": "3507526658",
+    "direction": "BUY",
+    "units": 0.3,
+    "open_price": 1827.97,
+    "open_date": "6-7-2026",
+    "stop_loss": null,
+    "take_profit": 20107.56,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "STX.US",
+    "position_id": "3506283918",
+    "direction": "BUY",
+    "units": 1.0,
+    "open_price": 840.0,
+    "open_date": "2-7-2026",
+    "stop_loss": null,
+    "take_profit": 9240.0,
+    "total_fees": 0.0
   },
   {
     "ticker": "BW",
+    "position_id": "3507525806",
     "direction": "BUY",
-    "units": 6.876502,
-    "open_price": 2.468,
-    "open_date": "11-9-2025",
+    "units": 30.0,
+    "open_price": 11.75,
+    "open_date": "6-7-2026",
     "stop_loss": null,
-    "take_profit": null
+    "take_profit": 129.25,
+    "total_fees": 0.0
   },
   {
-    "ticker": "NBIS",
+    "ticker": "SNDK",
+    "position_id": "3507530602",
     "direction": "BUY",
-    "units": 1.228331,
-    "open_price": 188.06,
-    "open_date": "19-5-2026",
+    "units": 0.414621,
+    "open_price": 1784.76,
+    "open_date": "6-7-2026",
     "stop_loss": null,
-    "take_profit": 2068.66
+    "take_profit": 19632.38,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "RKLB",
+    "position_id": "3383974251",
+    "direction": "BUY",
+    "units": 1.5,
+    "open_price": 60.3,
+    "open_date": "31-3-2026",
+    "stop_loss": null,
+    "take_profit": 663.3,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "RKLB",
+    "position_id": "3397659301",
+    "direction": "BUY",
+    "units": 4.136073,
+    "open_price": 67.3,
+    "open_date": "9-4-2026",
+    "stop_loss": null,
+    "take_profit": 740.3,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "RKLB",
+    "position_id": "3498364313",
+    "direction": "BUY",
+    "units": 2.0,
+    "open_price": 84.25,
+    "open_date": "26-6-2026",
+    "stop_loss": null,
+    "take_profit": 926.75,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "RKLB",
+    "position_id": "3482091887",
+    "direction": "BUY",
+    "units": 1.0,
+    "open_price": 108.16,
+    "open_date": "15-6-2026",
+    "stop_loss": null,
+    "take_profit": 1189.76,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "CRBU",
+    "position_id": "3510590357",
+    "direction": "BUY",
+    "units": 50.0,
+    "open_price": 2.02,
+    "open_date": "8-7-2026",
+    "stop_loss": null,
+    "take_profit": 22.22,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "ASTS",
+    "position_id": "3027782910",
+    "direction": "BUY",
+    "units": 2.029008,
+    "open_price": 24.81,
+    "open_date": "27-5-2025",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "ASTS",
+    "position_id": "3124439871",
+    "direction": "BUY",
+    "units": 1.005326,
+    "open_price": 37.55,
+    "open_date": "11-9-2025",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "ASTS",
+    "position_id": "3023159081",
+    "direction": "BUY",
+    "units": 2.005615,
+    "open_price": 24.9299,
+    "open_date": "20-5-2025",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "ASTS",
+    "position_id": "3034524289",
+    "direction": "BUY",
+    "units": 1.742996,
+    "open_price": 28.67,
+    "open_date": "4-6-2025",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "ASTS",
+    "position_id": "3369806146",
+    "direction": "BUY",
+    "units": 4.104195,
+    "open_price": 94.63,
+    "open_date": "19-3-2026",
+    "stop_loss": null,
+    "take_profit": 1040.6,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "LASR",
+    "position_id": "3029244016",
+    "direction": "BUY",
+    "units": 3.168567,
+    "open_price": 15.78,
+    "open_date": "28-5-2025",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "LASR",
+    "position_id": "3016557221",
+    "direction": "BUY",
+    "units": 0.429256,
+    "open_price": 12.16,
+    "open_date": "12-5-2025",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "LASR",
+    "position_id": "3501129721",
+    "direction": "BUY",
+    "units": 2.0,
+    "open_price": 64.29,
+    "open_date": "29-6-2026",
+    "stop_loss": null,
+    "take_profit": 707.19,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "LASR",
+    "position_id": "3023637946",
+    "direction": "BUY",
+    "units": 4.313443,
+    "open_price": 13.91,
+    "open_date": "20-5-2025",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "QBTS",
+    "position_id": "2791437503",
+    "direction": "BUY",
+    "units": 7.729618,
+    "open_price": 0.9955,
+    "open_date": "14-8-2024",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "QBTS",
+    "position_id": "3372183703",
+    "direction": "BUY",
+    "units": 12.523481,
+    "open_price": 15.97,
+    "open_date": "23-3-2026",
+    "stop_loss": null,
+    "take_profit": 175.67,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "QBTS",
+    "position_id": "2750759656",
+    "direction": "BUY",
+    "units": 5.45177,
+    "open_price": 1.13,
+    "open_date": "27-6-2024",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "QBTS",
+    "position_id": "3398189517",
+    "direction": "BUY",
+    "units": 8.430561,
+    "open_price": 14.03,
+    "open_date": "10-4-2026",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "QBTS",
+    "position_id": "3482739634",
+    "direction": "BUY",
+    "units": 6.0,
+    "open_price": 26.62,
+    "open_date": "15-6-2026",
+    "stop_loss": null,
+    "take_profit": 292.82,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "QBTS",
+    "position_id": "2861987243",
+    "direction": "BUY",
+    "units": 2.540699,
+    "open_price": 1.9855,
+    "open_date": "21-11-2024",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0.0
+  },
+  {
+    "ticker": "ALVIO.PA",
+    "position_id": "3506360495",
+    "direction": "BUY",
+    "units": 216.090122,
+    "open_price": 0.404,
+    "open_date": "3-7-2026",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0.0
   },
   {
     "ticker": "ANET",
+    "position_id": "",
     "direction": "BUY",
     "units": 0,
     "open_price": 0.0,
     "open_date": "",
     "stop_loss": null,
-    "take_profit": null
+    "take_profit": null,
+    "total_fees": 0
   },
   {
     "ticker": "NVTS",
+    "position_id": "",
     "direction": "BUY",
     "units": 0,
     "open_price": 0.0,
     "open_date": "",
     "stop_loss": null,
-    "take_profit": null
+    "take_profit": null,
+    "total_fees": 0
+  },
+  {
+    "ticker": "NBIS",
+    "position_id": "",
+    "direction": "BUY",
+    "units": 0,
+    "open_price": 0.0,
+    "open_date": "",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0
+  },
+  {
+    "ticker": "WMT",
+    "position_id": "",
+    "direction": "BUY",
+    "units": 0,
+    "open_price": 0.0,
+    "open_date": "",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0
+  },
+  {
+    "ticker": "DVN",
+    "position_id": "",
+    "direction": "BUY",
+    "units": 0,
+    "open_price": 0.0,
+    "open_date": "",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0
+  },
+  {
+    "ticker": "JPM",
+    "position_id": "",
+    "direction": "BUY",
+    "units": 0,
+    "open_price": 0.0,
+    "open_date": "",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0
+  },
+  {
+    "ticker": "SHOP",
+    "position_id": "",
+    "direction": "BUY",
+    "units": 0,
+    "open_price": 0.0,
+    "open_date": "",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0
+  },
+  {
+    "ticker": "MSFT",
+    "position_id": "",
+    "direction": "BUY",
+    "units": 0,
+    "open_price": 0.0,
+    "open_date": "",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0
+  },
+  {
+    "ticker": "GOOG",
+    "position_id": "",
+    "direction": "BUY",
+    "units": 0,
+    "open_price": 0.0,
+    "open_date": "",
+    "stop_loss": null,
+    "take_profit": null,
+    "total_fees": 0
   },
   {
     "ticker": "FORM",
+    "position_id": "",
     "direction": "BUY",
     "units": 0,
     "open_price": 0.0,
     "open_date": "",
     "stop_loss": null,
-    "take_profit": null
+    "take_profit": null,
+    "total_fees": 0
   }
 ]

@@ -33,6 +33,8 @@ from database import get_candles, get_portfolio_summary
 from config import (
     WATCHLIST_TICKERS,
     COMPANY_INFO,
+    SCREEN,
+    SCREEN_UNIVERSE_WIDE,
     GOOGLE_SHEETS_CREDENTIALS_PATH,
     GOOGLE_SHEET_ID,
     GOOGLE_SHEET_NAME,
@@ -60,10 +62,12 @@ TAB_DAILY_PERF      = "Daily Performance"
 TAB_LIVE            = "Live Overview"
 TAB_CLOSED          = "Closed Trades"
 TAB_META            = "Metadata"
+TAB_SCREENER        = "Screener"
 STATIC_TABS         = [TAB_DASHBOARD, TAB_CHART_DATA,
                        TAB_LOOKER_DAILY, TAB_LOOKER_POSITIONS,
                        TAB_POSITIONS, TAB_OVERVIEW, TAB_LOGBOOK, TAB_DAILY_PNL,
-                       TAB_MONTHLY_PERF, TAB_DAILY_PERF, TAB_LIVE, TAB_CLOSED, TAB_META]
+                       TAB_MONTHLY_PERF, TAB_DAILY_PERF, TAB_LIVE, TAB_CLOSED,
+                       TAB_SCREENER, TAB_META]
 
 # Regime multipliers: scale IC weights up/down based on market environment
 REGIME_MULTIPLIERS = {
@@ -1325,6 +1329,7 @@ def _compute_reversal_signal(ind: dict, close: float) -> dict:
 def _export_overview(
     spreadsheet: gspread.Spreadsheet,
     positions: dict,
+    portfolio: dict,
     fundamentals: dict,
     tickers: list[str],
     widget_rows: list[list],
@@ -1347,7 +1352,10 @@ def _export_overview(
         "P/E", "Fwd P/E", "EPS TTM", "Rev Growth %", "Profit Margin %",
         "Beta", "Analyst Target",
     ]
-    portfolio = {r["ticker"]: r for r in get_portfolio_summary()}
+    # `portfolio` is passed in from run_export with latest_close already patched to
+    # the live intraday eToro price, so Close / Day-Change / P&L update on every
+    # (including hourly) run — not just the once-a-day DB refresh. Open/High/Low/
+    # Volume stay at the last completed daily bar.
     ticker_rows = []
 
     for ticker in tickers:
@@ -1362,6 +1370,11 @@ def _export_overview(
         comp  = _compute_composite_signal(ind, close, fund, weights=w, regime=regime)
 
         prev_close = float(p.get("prev_close") or 0)
+        # Ticker day-change % from the live close (falls back to the DB value).
+        if prev_close and close:
+            day_change_pct = round((close - prev_close) / prev_close * 100, 2)
+        else:
+            day_change_pct = p.get("day_change_pct", "")
         if prev_close and agg:
             day_pnl     = round((close - prev_close) * agg["total_units"], 2)
             day_pnl_pct = round((close - prev_close) / prev_close * 100, 2)
@@ -1376,7 +1389,7 @@ def _export_overview(
             p.get("latest_high", ""),
             p.get("latest_low", ""),
             p.get("latest_volume", ""),
-            p.get("day_change_pct", ""),
+            day_change_pct,
             comp["label"],
             comp["score"],
             comp.get("macro_adj", 0),
@@ -3181,6 +3194,276 @@ def _fetch_spy_data() -> tuple[pd.DataFrame | None, dict[str, float], float | No
     return spy_daily_df, spy_monthly_returns, spy_ytd_return
 
 
+def _add_screener_charts(spreadsheet: gspread.Spreadsheet,
+                         n_score: int, n_years: int, n_exit: int) -> None:
+    """Delete existing Screener chart overlays and add the score / per-year /
+    exit-mix charts. Data lives in hidden columns Z+ on the Screener tab itself,
+    mirroring the per-ticker chart pattern."""
+    try:
+        ws       = spreadsheet.worksheet(TAB_SCREENER)
+        sheet_id = ws.id
+
+        meta   = spreadsheet.fetch_sheet_metadata()
+        charts = []
+        for sheet in meta.get("sheets", []):
+            if sheet.get("properties", {}).get("sheetId") == sheet_id:
+                charts = sheet.get("charts", [])
+                break
+        reqs = [{"deleteEmbeddedObject": {"objectId": c["chartId"]}} for c in charts]
+
+        # (title, type, x_col, y_col, n_rows, anchor_row, anchor_col, donut)
+        layout = [
+            ("Pre-breakout score by ticker", "COLUMN", 25, 26, n_score, 2,  12, False),
+            ("Backtest avg return by year (%)", "COLUMN", 28, 29, n_years, 19, 12, False),
+            ("Exit outcome mix", "PIE", 31, 32, n_exit, 36, 12, True),
+        ]
+        for title, ctype, xcol, ycol, nrows, arow, acol, donut in layout:
+            if nrows <= 0:
+                continue
+            reqs.append(_build_dashboard_chart_request(
+                source_sheet_id = sheet_id,
+                anchor_sheet_id = sheet_id,
+                title           = title,
+                chart_type      = ctype,
+                data_start_row  = 0,
+                data_end_row    = nrows + 1,   # +1 for the header row at Z1
+                x_col           = xcol,
+                y_cols          = [ycol],
+                anchor_row      = arow,
+                anchor_col      = acol,
+                width_px        = 480,
+                height_px       = 300,
+                is_donut        = donut,
+            ))
+
+        if reqs:
+            time.sleep(2)
+            for attempt in range(4):
+                try:
+                    spreadsheet.batch_update({"requests": reqs})
+                    log.info("Screener charts updated (%d old deleted, %d new)",
+                             len(charts), len(reqs) - len(charts))
+                    return
+                except gspread.exceptions.APIError as e:
+                    if "429" in str(e) and attempt < 3:
+                        time.sleep(20 * (attempt + 1))
+                    else:
+                        log.warning("Screener chart creation failed: %s", e)
+                        return
+    except Exception as exc:
+        log.warning("Screener chart creation failed: %s", exc)
+
+
+def _export_screener(spreadsheet: gspread.Spreadsheet,
+                     universe: list[str],
+                     fundamentals: dict | None = None,
+                     held: set | None = None,
+                     max_rows: int = 25) -> None:
+    """Write the Screener tab: today's pre-breakout ranking (with sector/industry
+    and a Held? flag), a NEW IDEAS list of top unowned names, feature importances,
+    walk-forward backtest metrics, a per-year breakdown, and a sector breakdown —
+    plus score / per-year / exit-mix charts.
+
+    Scans the broad discovery universe (S&P 500 + watchlist + holdings), so the
+    point is to surface NEW names, not just what you already own. Runs the model,
+    so it is only called on full open/close (and manual) exports.
+    """
+    from screener import rank_universe, walk_forward_backtest, held_tickers, to_yahoo
+
+    log.info("Building Screener tab (%d-name discovery universe)...", len(universe))
+    res     = rank_universe(universe)
+    ranked  = res["ranked"]
+    if ranked is None or ranked.empty:
+        log.warning("Screener produced no ranking — skipping tab.")
+        return
+
+    bt      = walk_forward_backtest(universe, verbose=False)
+    m       = bt["metrics"]
+
+    # Normalise holdings to Yahoo symbols so the Held? flag matches ranked tickers.
+    held = {to_yahoo(t) for t in (held if held is not None else held_tickers())}
+
+    # Sector / industry: not in the OHLCV DB — enrich from yfinance fundamentals.
+    # Only fetch for the names we actually show (ranking + new ideas), not all ~500.
+    fundamentals = dict(fundamentals or {})
+    shown = ranked.head(max_rows)["ticker"].tolist()
+    new_ideas_names = [t for t in ranked["ticker"].tolist() if t not in held][:15]
+    need = [t for t in set(shown) | set(new_ideas_names) if t not in fundamentals]
+    if need:
+        fundamentals.update(_fetch_fundamentals(need))
+
+    ts = datetime.now(_BERLIN).strftime("%Y-%m-%d %H:%M CET")
+    top = ranked.head(max_rows)
+    n_scored = len(ranked)
+
+    # Multi-horizon growth-window columns. `window` = earliest horizon the model
+    # thinks the +20% move lands in; P{h} = P(move within h trading days).
+    horizons = res.get("horizons") or SCREEN["HORIZONS"]
+    primary  = res.get("primary_horizon") or SCREEN["PRIMARY_HORIZON"]
+    hcols    = [f"P{h}d" for h in horizons]
+
+    def _window_str(w) -> str:
+        try:
+            return f"~{int(w)}d" if w == w and w is not None else f">{max(horizons)}d"
+        except (TypeError, ValueError):
+            return f">{max(horizons)}d"
+
+    rows: list[list] = [
+        [f"PRE-BREAKOUT SCREENER — as of {res['asof']}   ·   updated {ts}"],
+        [f"Model: {res['backend']}   ·   trained on {res['n_train']:,} samples   ·   "
+         f"scored {n_scored} of {len(universe)} names   ·   ● = you hold it, blank = NEW idea"],
+        [f"Score = P(+20% within {primary}d).   Window = earliest horizon the move is "
+         f"predicted to land in (P{'/'.join(str(h) for h in horizons)}d columns are the "
+         f"per-horizon probabilities)."],
+        ["⚠ DISCOVERY WATCHLIST — a high-variance research shortlist of pre-breakout "
+         "candidates, NOT a mechanical buy-list. The whole-market backtest is only "
+         "marginally positive with deep drawdowns and loses money in 2021–2023. Review "
+         "names manually and size as speculative bets."],
+        [],
+        ["#", "Ticker", "Held?", "Score", "Window", "Price", "Sector", "Industry",
+         "Pos252", "BelowHi", "Tight20", "RSI", "$Vol(M)", "MA-Stack"] + hcols,
+    ]
+    for i, (_, row) in enumerate(top.iterrows(), start=1):
+        fund = fundamentals.get(row["ticker"], {})
+        rows.append([
+            i, row["ticker"], "●" if row["ticker"] in held else "",
+            round(float(row["score"]), 3), _window_str(row.get("window")),
+            round(float(row["price"]), 2),
+            fund.get("sector", "") or "", fund.get("industry", "") or "",
+            round(float(row["pos_252"]), 2), round(float(row["dist_below_high"]), 2),
+            round(float(row["tightness_20"]), 3), round(float(row["rsi"]), 1),
+            round(float(row["avg_dollar_vol"]) / 1e6, 1), int(row["ma_stack"]),
+        ] + [round(float(row.get(f"p_h{h}", float('nan'))), 3) for h in horizons])
+
+    # ── NEW IDEAS: highest-scoring names you do NOT currently hold ────────────
+    rows += [[], ["NEW IDEAS — top-scoring names you don't own"],
+             ["#", "Ticker", "Score", "Window", "Price", "Sector", "Industry"]]
+    idea_set = ranked[~ranked["ticker"].isin(held)].head(15)
+    for i, (_, row) in enumerate(idea_set.iterrows(), start=1):
+        fund = fundamentals.get(row["ticker"], {})
+        rows.append([
+            i, row["ticker"], round(float(row["score"]), 3), _window_str(row.get("window")),
+            round(float(row["price"]), 2),
+            fund.get("sector", "") or "", fund.get("industry", "") or "",
+        ])
+
+    rows += [[], ["FEATURE IMPORTANCES (what drives the score)"], ["Feature", "Importance"]]
+    for name, val in res["importances"].head(10).items():
+        rows.append([name, round(float(val), 4)])
+
+    rows += [[], ["WALK-FORWARD BACKTEST  (top-%d, 10%% stop / 20%% target / 90d, fees+slippage, no lookahead)"
+                  % SCREEN["TOP_N"]]]
+    if m.get("n_trades", 0):
+        rr = m["reward_to_risk"]
+        rows += [
+            ["Trades", m["n_trades"], "", "Win rate", _fmt_pct(m["win_rate"])],
+            ["Avg return/trade", _fmt_pct(m["avg_return"]), "", "Reward:risk",
+             f"{rr:.2f}" if rr == rr else "N/A"],
+            ["Avg win", _fmt_pct(m["avg_win"]), "", "Avg loss", _fmt_pct(m["avg_loss"])],
+            ["Max drawdown (1/N)", _fmt_pct(m["max_drawdown"]), "", "Avg hold days",
+             round(m["avg_hold_days"], 1)],
+            ["Dates traded", m.get("scored_dates", ""), "", "Exit mix", str(m.get("exit_mix", {}))],
+            [],
+            ["PER-YEAR BREAKDOWN"],
+            ["Year", "Trades", "Win rate", "Avg return", "PnL (1/N)"],
+        ]
+        for y in sorted(m["by_year"]):
+            s = m["by_year"][y]
+            rows.append([y, s["n"], _fmt_pct(s["win_rate"]),
+                         _fmt_pct(s["avg_return"]), _fmt_pct(s["pnl_1_over_n"])])
+    else:
+        rows.append(["No trades generated over the available history."])
+
+    # ── TIMING RELIABILITY: did the +20% move land in the predicted window? ──
+    timing = m.get("timing") or {}
+    by_window = timing.get("by_window") or {}
+    if by_window:
+        rows += [[], ["TIMING RELIABILITY (walk-forward — did +20% land in the predicted window?)"],
+                 ["Pred. window", "Picks", "Hit in window", "Ever hit (≤%dd)" % max(horizons),
+                  "Median days"]]
+        for label, s in by_window.items():
+            med = round(s["median_days_to_target"], 0) if s["median_days_to_target"] is not None else "—"
+            rows.append([label, s["n"], _fmt_pct(s["hit_within_window"]),
+                         _fmt_pct(s["ever_hit"]), med])
+        cal = timing.get("calibration") or {}
+        if cal:
+            rows += [[], ["HORIZON CALIBRATION (predicted vs realised hit rate; Brier lower=better)"],
+                     ["Horizon", "Samples", "Mean predicted", "Actual hit rate", "Brier"]]
+            for h in sorted(cal):
+                c = cal[h]
+                rows.append([f"~{h}d", c["n"], _fmt_pct(c["mean_pred"]),
+                             _fmt_pct(c["actual_rate"]), round(c["brier"], 3)])
+
+    # Sector breakdown of the top picks (data IS now segmented by industry here).
+    sector_counts: dict[str, int] = {}
+    for _, row in top.iterrows():
+        sec = (fundamentals.get(row["ticker"], {}).get("sector") or "Unknown").strip() or "Unknown"
+        sector_counts[sec] = sector_counts.get(sec, 0) + 1
+    rows += [[], ["SECTOR BREAKDOWN (top %d picks)" % len(top)], ["Sector", "Count"]]
+    for sec, cnt in sorted(sector_counts.items(), key=lambda x: -x[1]):
+        rows.append([sec, cnt])
+
+    # Sector base-rate validation: how often each sector's setups actually reached
+    # the +20% target historically. This is WHY the ranking tilts to high-vol sectors
+    # (Tech ~34% vs Utilities ~10%) — the tilt is an explained, auditable feature.
+    base_rates = res.get("sector_base_rates") or {}
+    if base_rates:
+        rows += [[], ["SECTOR BASE RATE (why the tilt — % of setups that hit target)"],
+                 ["Sector", "Hit rate", "Samples"]]
+        for sec, br in sorted(base_rates.items(), key=lambda x: -x[1]["rate"]):
+            if br["n"] >= 200:
+                rows.append([sec, _fmt_pct(br["rate"]), br["n"]])
+
+    _write_tab(spreadsheet, TAB_SCREENER, rows)
+
+    # ── Hidden chart-source data in columns Z+ (Z=25) ────────────────────────
+    # Block A: score chart  (Z=ticker, AA=score)
+    # Block B: per-year avg  (AC=year, AD=avg return %)   [cols 3,4 of the grid]
+    # Block C: exit mix      (AF=outcome, AG=count)       [cols 6,7 of the grid]
+    score_names  = top["ticker"].tolist()
+    score_vals   = [round(float(v), 4) for v in top["score"].tolist()]
+    years        = sorted(m.get("by_year", {}))
+    year_vals    = [round(m["by_year"][y]["avg_return"] * 100, 3) for y in years]
+    exit_mix     = m.get("exit_mix", {}) or {}
+    exit_items   = list(exit_mix.items())
+
+    n_rows = max(len(score_names), len(years), len(exit_items))
+    grid: list[list] = [[""] * 8 for _ in range(n_rows + 1)]
+    grid[0] = ["Ticker", "Score", "", "Year", "AvgReturn%", "", "Outcome", "Count"]
+    for i, (nm, vl) in enumerate(zip(score_names, score_vals), start=1):
+        grid[i][0], grid[i][1] = nm, vl
+    for i, y in enumerate(years, start=1):
+        grid[i][3], grid[i][4] = y, year_vals[i - 1]
+    for i, (k, v) in enumerate(exit_items, start=1):
+        grid[i][6], grid[i][7] = k, int(v)
+
+    for attempt in range(4):
+        try:
+            ws = spreadsheet.worksheet(TAB_SCREENER)
+            ws.update("Z1", _sanitize_rows(grid), value_input_option="RAW")
+            break
+        except gspread.exceptions.APIError as e:
+            if "429" in str(e) and attempt < 3:
+                time.sleep(20 * (attempt + 1))
+            else:
+                log.warning("Failed writing Screener chart data: %s", e)
+                break
+
+    _add_screener_charts(spreadsheet, len(score_names), len(years), len(exit_items))
+
+    # Keep the Screener tab visible near the front (position 1, just after Dashboard)
+    # instead of drifting to the far right where it's easy to miss.
+    try:
+        ws = spreadsheet.worksheet(TAB_SCREENER)
+        spreadsheet.batch_update({"requests": [{
+            "updateSheetProperties": {
+                "properties": {"sheetId": ws.id, "index": 1}, "fields": "index",
+            }
+        }]})
+    except gspread.exceptions.APIError as e:
+        log.warning("Could not pin Screener tab: %s", e)
+
+
 def run_export(trigger: str = "scheduled"):
     """Export all trading data to Google Sheets. Called by the scheduler or CLI."""
     from pipeline import backfill, refresh, sync_positions
@@ -3331,7 +3614,7 @@ def run_export(trigger: str = "scheduled"):
 
     # ── Always: live P&L widget + Overview + Live Overview + Daily Perf + per-ticker ──
     _export_overview(
-        spreadsheet, positions, fundamentals, effective_tickers,
+        spreadsheet, positions, portfolio, fundamentals, effective_tickers,
         widget_rows, ticker_weights, regime,
     )
     # Dashboard pipeline: compute once → write Chart Data + Looker tabs →
@@ -3365,6 +3648,20 @@ def run_export(trigger: str = "scheduled"):
         _export_daily_pnl(spreadsheet, positions, portfolio)
         _export_monthly_performance(spreadsheet, portfolio_history, spy_monthly_returns, widget_rows)
         _export_closed_trades(spreadsheet)
+
+    # ── Screener: market open + close (and manual) only — NOT hourly/midnight ──
+    # It trains the model + runs the walk-forward, so we keep it off the frequent
+    # intraday cadence and refresh it just at the start and stop of the session.
+    SCREENER_TRIGGERS = {"market_open", "market_close", "manual"}
+    if trigger in SCREENER_TRIGGERS:
+        try:
+            from screener import discovery_universe
+            _export_screener(
+                spreadsheet, discovery_universe(),
+                fundamentals=fundamentals, held=set(positions.keys()),
+            )
+        except Exception:
+            log.exception("Screener export failed — continuing")
 
     _export_metadata(spreadsheet, trigger=trigger)
 

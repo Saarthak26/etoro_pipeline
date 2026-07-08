@@ -18,7 +18,8 @@
    - 4.3 [Regime Detection](#43-regime-detection)
    - 4.4 [Regime Multipliers](#44-regime-multipliers)
    - 4.5 [Fundamentals Overlay](#45-fundamentals-overlay)
-   - 4.6 [Signal Labels](#46-signal-labels)
+   - 4.6 [Macro Adjustments](#46-macro-adjustments)
+   - 4.7 [Signal Labels](#47-signal-labels)
 5. [Portfolio Risk Metrics](#5-portfolio-risk-metrics)
    - 5.1 [Annualised Volatility (σ)](#51-annualised-volatility-σ)
    - 5.2 [Value at Risk 95% (VaR)](#52-value-at-risk-95-var)
@@ -30,7 +31,9 @@
 8. [Sector Allocation](#8-sector-allocation)
 9. [Average Hold Time](#9-average-hold-time)
 10. [Sheet Tab Reference](#10-sheet-tab-reference)
-11. [Changelog](#changelog)
+11. [Scheduler](#11-scheduler)
+12. [Pre-Breakout Screener (Multi-Horizon)](#12-pre-breakout-screener-multi-horizon)
+13. [Changelog](#changelog)
 
 ---
 
@@ -56,12 +59,16 @@ pipeline.py  ──►  SQLite (market_data.db)
 
 | File | Purpose |
 |------|---------|
-| `config.py` | API keys, watchlist, DB path, scheduler times |
+| `config.py` | API keys, watchlist, DB path, scheduler times, macro-cache path |
 | `database.py` | SQLite schema, upsert/query helpers |
 | `etoro_client.py` | eToro API wrapper (candles, instruments, portfolio) |
 | `pipeline.py` | `backfill()`, `refresh()`, `sync_positions()` |
-| `sheets_exporter.py` | All indicator, signal, risk, and export logic |
-| `scheduler.py` | APScheduler daemon — triggers export at 09:30 and 16:00 NY |
+| `macro_cache.py` | Daily yfinance cache: news, analyst target, sector, 52-week range, short ratio, institutional % |
+| `account_summary.py` | Read-only broker-authoritative account snapshot (equity, P&L, exposure) |
+| `statement_importer.py` | One-off importer for eToro account-statement CSV (populates Closed Trades) |
+| `sheets_exporter.py` | All indicator, signal, risk, dashboard, Looker and export logic |
+| `screener.py` | Machine-learning pre-breakout screener — feature engineering, multi-horizon labels, gradient-boosted scorer, walk-forward backtest (see [Section 12](#12-pre-breakout-screener-multi-horizon)) |
+| `scheduler.py` | APScheduler daemon — 5 jobs (see [Section 11](#11-scheduler)) |
 | `main.py` | CLI entry point |
 
 ---
@@ -285,7 +292,33 @@ The earnings penalty reflects uncertainty ahead of a binary event — the signal
 
 ---
 
-### 4.6 Signal Labels
+### 4.6 Macro Adjustments
+
+Added on top of the technical score (both paths) using cached macro data from `macro_cache.py` (yfinance, refreshed daily). The component is surfaced as the **Macro Adj** column in the Overview tab and as a `MacroAdj:±X.XX` suffix in the signal reason string.
+
+**Analyst-target gap** — distance of current close from the mean 12-month analyst price target:
+
+| Gap = (close − target) / target | Macro Adj |
+|---|---|
+| > +40% | −0.75 (well above target, overvalued) |
+| > +20% | −0.40 |
+| > +10% | −0.20 |
+| < −30% | +0.75 (deep discount to target) |
+| < −15% | +0.40 |
+| < −5% | +0.20 |
+
+**52-week range proximity**:
+
+| Condition | Macro Adj |
+|---|---|
+| Within 3% of 52-week high | −0.25 (extension risk) |
+| Within 10% of 52-week low | +0.25 (mean-reversion candidate) |
+
+**Why outside Fundamentals Overlay:** Analyst targets and 52-week extremes change daily with price, not quarterly with earnings, so they fit naturally as a price-driven overlay distinct from accounting fundamentals.
+
+---
+
+### 4.7 Signal Labels
 
 Final score → label mapping (same thresholds for both paths):
 
@@ -548,14 +581,132 @@ Value-weighting ensures a large $50k position held for 2 years contributes more 
 
 | Tab | Content | Updated each export |
 |-----|---------|---------------------|
-| **Positions** | All open legs — editable; synced back to `positions.json` at export start | Yes — full overwrite |
-| **Overview** | Portfolio widget (rows 1–8) + all tickers: IC signal, regime, indicators, P&L, fundamentals | Yes — full overwrite |
-| **Log Book** | Full OHLCV history (90 days) per ticker with indicators, sorted newest first | Yes — full overwrite |
-| **Daily P&L** | Append-only log: TOTAL + per-ticker rows per day; same-day re-runs replace that day's rows only | Yes — append / replace today |
-| **Monthly Performance** | Portfolio widget + monthly P&L from Sep 2023 → today with SPY Alpha | Yes — full overwrite |
-| **Daily Performance** | Portfolio widget + daily P&L YTD (Jan 1 → today), newest first | Yes — full overwrite |
-| **Metadata** | Last updated timestamp, trigger, ticker list | Yes — full overwrite |
-| **NVDA / AMD / …** | Per-ticker: company info, snapshot, signal weights section, sentiment, fundamentals, positions, indicators, OHLCV 90d | Yes — full overwrite |
+| **Dashboard** | Pinned first tab. Native Sheets charts (portfolio value, drawdown, monthly P&L vs SPY, signal distribution). Backed by `Chart Data`. | Yes — full overwrite |
+| **Chart Data** | Numeric series feeding the Dashboard charts (resampled portfolio history, drawdown series, signal counts). Not formatted for reading. | Yes — full overwrite |
+| **Looker - Daily** | Long-format daily portfolio + per-ticker rows for Looker Studio data source connection. | Yes — full overwrite |
+| **Looker - Positions** | Long-format current positions table for Looker Studio. | Yes — full overwrite |
+| **Positions** | All open legs — read-only mirror of `positions.json` (no reverse-sync). | Yes — full overwrite |
+| **Overview** | Portfolio widget (rows 1–8) + all tickers: IC signal, **Macro Adj**, regime, indicators, P&L, fundamentals. **Close / Day-Change / P&L now use the live intraday eToro price on every run** (see v2.2). | Yes — full overwrite |
+| **Live Overview** | Compact intraday dashboard: live price, day change, P&L, composite + reversal signals per ticker. Live price sourced from eToro hourly candles. | Yes — full overwrite |
+| **Screener** | Machine-learning pre-breakout ranking over the whole liquid US market: Score, predicted growth **Window**, per-horizon probabilities (P10/P30/P90/P180), features, walk-forward backtest, **timing-reliability** table, sector base rates. | On market open / close / manual only |
+| **Log Book** | Full OHLCV history (90 days) per ticker with indicators, sorted newest first. | Yes — full overwrite |
+| **Daily P&L** | Append-only log: TOTAL + per-ticker rows per day; same-day re-runs replace that day's rows only. | Yes — append / replace today |
+| **Monthly Performance** | Portfolio widget + monthly P&L from Sep 2023 → today with SPY Alpha. | Yes — full overwrite |
+| **Daily Performance** | Portfolio widget + daily P&L YTD (Jan 1 → today), newest first. | Yes — full overwrite |
+| **Closed Trades** | Realised trades imported from eToro account-statement CSV via `python main.py import-statement <file>`. | On import only |
+| **Metadata** | Last updated timestamp, trigger, ticker list. | Yes — full overwrite |
+| **NVDA / AMD / …** | Per-ticker tab. Visible area = company info, snapshot, signal weights, indicator analysis table, macro factors (sector, market cap, analyst target, 52-week range, short ratio, institutional %, recent news), positions, plus **7 embedded native charts** (RSI, MACD hist, BB%, EMA alignment, Fisher, ROC 5d/20d, Volume ratio). OHLCV + indicator time series (18 columns) live in **hidden columns Z–AL** and back the charts. | Yes — full overwrite |
+
+---
+
+## 11. Scheduler
+
+`scheduler.py` runs an APScheduler `BlockingScheduler` daemon with **5 jobs**. Times in Berlin unless noted.
+
+| # | Job | Cron | What it does | Misfire grace |
+|---|-----|------|--------------|---------------|
+| 1 | Market open | 15:30 Mon–Fri | Full Sheets export | 1800 s |
+| 2 | Hourly | 16:30, 17:30, 18:30, 19:30, 20:30, 21:30 Mon–Fri | Live-only export (Overview widget + Daily Perf + per-ticker tabs) | 1800 s |
+| 3 | Market close | 22:00 Mon–Fri | Full Sheets export | 1800 s |
+| 4 | Daily OHLCV refresh | 23:00 daily | Position sync + OHLCV refresh + full Sheets export | 3600 s |
+| 5 | NY midnight | 00:00 `America/New_York` daily (= 06:00 Berlin) | Full Sheets export — second daily push so the dashboard reflects the latest data at the start of each NY trading day. Provides natural redundancy if job 4 fails. | 1800 s |
+
+**Run as a daemon:** `python main.py scheduler`. The process is started on this Mac via the `com.trading.scheduler` LaunchAgent (`~/Library/LaunchAgents/com.trading.scheduler.plist`), which auto-respawns it on crash or kill.
+
+**Sleep is the main failure mode** — APScheduler does not wake the host. A fire that lands while the Mac is in Standby/Maintenance Sleep is silently missed. The misfire grace times above only help if the host wakes within that window.
+
+---
+
+## 12. Pre-Breakout Screener (Multi-Horizon)
+
+`screener.py` is a self-contained machine-learning system that scans the whole liquid
+US market to rank names most likely to **break out** (rally ≥ +20%) and predicts the
+**time window** in which the move is likely to land. It is independent of the P&L
+dashboard: its own SQLite tables, its own yfinance backfill, its own model.
+
+### 12.1 Data & universe
+
+- **Price source:** yfinance daily OHLCV (split/dividend-adjusted), stored in the
+  `screener_candles` table — separate from the eToro `candles` used by the dashboard.
+- **Sector metadata:** `screener_meta` table (`sector`, `industry`) backfilled once per
+  symbol from yfinance.
+- **Discovery universe (`discovery_universe()`):** the liquidity-filtered active set ∪
+  S&P 500 ∪ the wide watchlist ∪ current holdings (~2,200 names). Symbols without
+  backfilled OHLCV drop out automatically.
+- **Eligibility filter (`_eligible`):** price ≥ $5 and 20-day average dollar-volume ≥
+  $20M, and all features present (needs ≥ 252 trading days of history, so freshly-listed
+  names are excluded rather than imputed).
+
+### 12.2 Features (`FEATURE_COLS`)
+
+Ten purely-technical, point-in-time features per name: `pos_252` (position in the
+trailing 252-day range), `dist_below_high`, `tightness_20` (volatility contraction),
+`ma_stack` (MA20 > MA50 > MA200), `px_vs_ma50`, `rsi`, `rsi_slope_5`, `vol_contraction`,
+`obv_slope` (accumulation), `trend_63`. `price` and `avg_dollar_vol` are carried for
+filtering only — never fed to the model.
+
+### 12.3 Multi-horizon labels
+
+For each horizon **N ∈ {10, 30, 90, 180} trading days** (`SCREEN["HORIZONS"]`), a binary
+label marks whether the max forward high reaches **+20%** (`RALLY_THRESHOLD`) within N
+days (`make_multi_labels` → `label_h{N}`). The last N rows of each series are `NaN`
+(window not yet closed) and simply drop out of that horizon's training set. Labels are
+training targets only; they are never merged into the feature matrix.
+
+### 12.4 Model — one gradient-boosted classifier per horizon
+
+`MultiHorizonScorer` holds one `PreBreakoutScorer` (xgboost `XGBClassifier`, sklearn
+`HistGradientBoosting` fallback) per horizon. Each sub-model predicts *P(+20% within its
+horizon)*. The model is **retrained from scratch on all matured history every run** — no
+online/streaming state.
+
+- **Ranking score** = `P(PRIMARY_HORIZON)` (default 90d — kept near the 90-day trade
+  hold so ranking and the backtest agree). Drives the top-N pick order.
+- **Predicted growth window** = the **earliest** horizon whose probability clears
+  `WINDOW_PROB_THRESHOLD` (0.5), e.g. `~30d`; `>180d` if none clear it.
+- Probabilities are approximately monotone across horizons (`P10 ≤ P30 ≤ P90 ≤ P180`)
+  because the windows are nested — treated as a sanity check, not enforced.
+
+### 12.5 Walk-forward backtest (`walk_forward_backtest`)
+
+The only honest measure of edge. Weekly rebalances snapped to real trading days; at each
+date the scorer is trained only on rows whose forward label window closed **before** an
+**embargo** sized to the longest horizon (≈180 trading days) — strict train-before-test,
+no lookahead. Top-`TOP_N` (5) eligible names are entered and simulated forward with:
+
+- **10% hard stop / 20% take-profit / 90-day time exit** (`simulate_trade`),
+- **fees + slippage** on both sides (stop assumed to fill before target on an
+  ambiguous bar — conservative).
+
+Headline metrics: trades, win rate, avg return/trade, avg win vs avg loss, reward:risk,
+max drawdown (1/N fixed-fractional), exit mix, and a per-year breakdown.
+
+### 12.6 Timing reliability (the growth-window validation)
+
+Separately from P&L, every backtest pick records its **predicted window** and the
+**ground-truth days-to-target** (`time_to_target` — first forward day the +20% level is
+touched, censored at 180d, ignoring stops). Two tables are produced:
+
+- **By predicted window:** picks, % that actually hit within that window, % that ever
+  hit, and median actual days-to-target. This directly answers *"when we say ~30 days,
+  does it land in ~30 days?"*.
+- **Per-horizon calibration:** mean predicted probability vs realised hit rate, plus a
+  **Brier score** (lower = better) per horizon — showing which horizon models are
+  trustworthy and which are over-confident.
+
+Both render on the **Screener** tab and in the CLI backtest output.
+
+### 12.7 CLI
+
+```
+python main.py screener-backfill market   # one-time whole-market yfinance backfill (~6.9k names)
+python main.py screen  [wide|sp500|market] # today's ranked list + growth windows
+python main.py backtest[wide|sp500|market] # walk-forward metrics + timing-reliability tables
+```
+
+Key config knobs live in `SCREEN` (`config.py`): `HORIZONS`, `PRIMARY_HORIZON`,
+`WINDOW_PROB_THRESHOLD`, `RALLY_THRESHOLD`, `TOP_N`, `STOP_LOSS`, `TAKE_PROFIT`,
+`MAX_HOLD_DAYS`, `RETRAIN_EVERY`, `MIN_PRICE`, `MIN_DOLLAR_VOL`, `LABEL_MODE`.
 
 ---
 
@@ -563,6 +714,115 @@ Value-weighting ensures a large $50k position held for 2 years contributes more 
 
 Each entry records: date, version, what changed, and why.
 To add a new entry: prepend a new `### vX.Y` block immediately below this line.
+
+---
+
+### v2.2 — Pre-Breakout Screener, Multi-Horizon Growth-Window Prediction, Overview Live-Price Fix
+
+**Date:** 2026-07-08
+
+Covers: the machine-learning screener (`screener.py`, new **Screener** tab), the
+multi-horizon growth-window prediction, and a fix so the Overview tab reflects live
+intraday prices on every scheduled run.
+
+#### Pre-breakout screener (`screener.py`, new — Section 12)
+
+- New standalone ML system scanning the whole liquid US market (~2,200-name discovery
+  universe) for pre-breakout setups. Own yfinance backfill (`screener_candles`), own
+  sector table (`screener_meta`), gradient-boosted scorer (xgboost / sklearn fallback).
+- Ten point-in-time technical features; +20%-within-window labels; walk-forward backtest
+  with embargoed train-before-test (no lookahead), 10% stop / 20% target / 90d exit,
+  fees + slippage.
+- New **Screener** sheet tab: ranked list, NEW IDEAS (top unheld names), feature
+  importances, walk-forward metrics, per-year breakdown, sector base rates + charts.
+- CLI: `screener-backfill`, `screen [wide|sp500|market]`, `backtest [wide|sp500|market]`.
+
+#### Multi-horizon growth-window prediction
+
+- The single "+20% in 60 days?" label is replaced by **four horizon classifiers at
+  10 / 30 / 90 / 180 trading days** (`MultiHorizonScorer`), each retrained on its own
+  matured history every run (retrain-on-history — no online loop).
+- Each name now gets a predicted growth **Window** (earliest horizon whose probability
+  clears `WINDOW_PROB_THRESHOLD` = 0.5) plus per-horizon probabilities **P10/P30/P90/P180**.
+  Ranking uses `PRIMARY_HORIZON` = 90d (aligned with the 90-day trade hold).
+- New **timing-reliability** validation: for every backtest pick, predicted window vs
+  ground-truth days-to-target (`time_to_target`). Two tables — hit-rate/median-days by
+  predicted window, and per-horizon calibration with **Brier scores** — surface on the
+  Screener tab and in the CLI backtest. This is the honest test of the timing claim.
+- Deliberately **not** doing cross-industry price imputation for young names (would inject
+  fabricated data and corrupt the backtest); short-history names are filtered out instead.
+- New config (`SCREEN`): `HORIZONS`, `PRIMARY_HORIZON`, `WINDOW_PROB_THRESHOLD`.
+
+#### Overview tab — live intraday prices (bug fix)
+
+- **Bug:** the **Overview** tab re-queried `get_portfolio_summary()` internally and
+  ignored the live-price-patched `portfolio` built in `run_export`, so its Close /
+  Day-Change / P&L columns only moved once a day (the 23:00 DB refresh) and looked frozen
+  on the hourly/intraday runs. The live eToro price only reached the separate **Live
+  Overview** tab.
+- **Fix:** `_export_overview` now receives the live-patched `portfolio` (like
+  `_export_live_overview` already did) and derives Close, Day-Change % and P&L from the
+  live intraday price on every run. Open/High/Low/Volume stay at the last completed daily
+  bar.
+
+---
+
+### v2.1 — Per-Ticker Charts, Macro Cache, Dashboard, Looker, NY-Midnight Job
+
+**Date:** 2026-06-15
+
+Covers: Stage 6 (`93e1ad3`), Z-column fix (`e1b6dcc`), Stage 7 (`4f03bf1`), NY-midnight scheduler job (`0f30d72`).
+
+#### Per-ticker tab redesign
+
+- **7 native Google Sheets charts** embedded right of the visible content per ticker: RSI, MACD histogram, BB %, EMA alignment, Fisher Transform, ROC 5d/20d, Volume ratio.
+- **Indicator analysis table** added per tab: each indicator → value + signal label + plain-English interpretation.
+- **Macro factors block** added per tab: sector, industry, market cap, analyst target vs price, 52-week range, short ratio, institutional %, and 5 most recent news headlines.
+- **OHLCV history extended from 7 to 18 columns** (now includes all indicator time series feeding the charts).
+- **OHLCV + indicator data hidden in columns Z–AL.** Visible tab is narrative + analysis + charts only — the raw numeric grid no longer clutters the tab. Charts reference the hidden Z+ range.
+
+#### Macro cache (`macro_cache.py`)
+
+- New file. Daily yfinance fetch per ticker, JSON cache keyed by ticker + date, refreshed at most once per calendar day.
+- Fields cached: news (5 latest), analyst mean/median price target, sector, industry, market-cap (formatted), 52-week high/low, short ratio, institutional ownership %.
+- No additional API key required (uses yfinance).
+- New CLI: `python main.py update-macro [TICK…]` — force refresh.
+- `STX.US → STX` ticker alias for Yahoo.
+
+#### Signal scoring — macro overlay (new Section 4.6)
+
+- Composite signal now includes a `macro_adj` component using cached macro data.
+- **Analyst-target gap**: ±0.20 / ±0.40 / ±0.75 based on how far the current close sits relative to the mean analyst target.
+- **52-week proximity**: −0.25 within 3 % of the 52-week high (extension risk); +0.25 within 10 % of the 52-week low (mean-reversion candidate).
+- Added to **both** the IC-weighted path and the legacy fixed-weight path.
+- Surfaced as a new **Macro Adj** column in Overview, plus a `MacroAdj:±X.XX` suffix in the signal `reason` string.
+
+#### Dashboard tab (pinned first)
+
+- New tab. Native Sheets line/column/bar charts: portfolio value over time, drawdown series, monthly P&L vs SPY, signal distribution.
+- Backed by a new **Chart Data** tab with the resampled numeric series (kept narrow so the Dashboard charts stay performant).
+- Pinned to the first position on each export run via `_pin_dashboard_first`.
+
+#### Looker Studio integration
+
+- Two new tabs designed as Looker Studio data sources:
+  - **Looker - Daily** — long-format daily portfolio + per-ticker rows.
+  - **Looker - Positions** — long-format current open positions snapshot.
+
+#### Quota / reliability fixes
+
+- New `_write_z_data()` writer with 20 / 40 / 60 s retry ladder (matches `_write_tab`) for the hidden Z+ data range.
+- 2 s throttle and retry inside `_add_ticker_charts` to avoid 429 bursts when re-creating the 7 charts × N tickers (previously hammered Sheets API on full exports).
+
+#### Scheduler — new NY-midnight job
+
+- 5th job added: full Sheets export at **00:00 `America/New_York` (= 06:00 Berlin) daily**.
+- Provides a second daily push after the 23:00 Berlin refresh — dashboard reflects the latest data at the start of each NY trading day, and acts as natural redundancy if the 23:00 fire fails (see ops note: an instance of this exact failure happened on 2026-06-14 with a transient SQLite "unable to open database file" error during wake-from-sleep).
+- Misfire grace: 1800 s.
+
+#### Docs
+
+- New [Section 11: Scheduler](#11-scheduler) — full job table, LaunchAgent note, and the macOS sleep-misfire caveat.
 
 ---
 

@@ -2,9 +2,13 @@
 scheduler.py — Runs the trading dashboard refresh automatically.
 
 Jobs:
-  1. Market open  — 15:30 Berlin  Mon–Fri  → full export (Positions, Log Book, Daily P&L, Monthly Perf, Overview, ...)
+  1. Market open  — 15:30 Berlin  Mon–Fri  → full export + pre-breakout Screener tab
   2. Hourly       — 16:30–21:30 Berlin Mon–Fri → live-only export (Overview widget + Daily Perf + per-ticker tabs)
-  3. Market close — 22:00 Berlin  Mon–Fri  → full export
+  3. Market close — 22:00 Berlin  Mon–Fri  → full export + pre-breakout Screener tab
+
+The Screener tab (ranking + backtest + charts) is refreshed only at open and close
+— it trains a model + runs the walk-forward, so it is deliberately kept off the
+hourly and midnight cadences (see run_export's SCREENER_TRIGGERS in sheets_exporter.py).
   4. Daily OHLCV  — 23:00 Berlin  daily    → position sync + candle refresh + full export
   5. NY midnight  — 00:00 New York daily   → full export
 
