@@ -131,13 +131,32 @@ SCREEN = {
                                   #  still strict train-before-test — the model is only reused
                                   #  forward, never trained on future data)
     # ── Tilt / neutralization levers (compared in the walk-forward) ────────────
-    "LABEL_MODE":       "fixed",  # "fixed"       -> +RALLY_THRESHOLD in FORWARD_WINDOW days
+    "LABEL_MODE":       "triple_barrier",  # "triple_barrier" -> +TAKE_PROFIT hit before -STOP_LOSS
+                                  #                  within the horizon (matches the backtest's exit
+                                  #                  logic); best win rate + calibration in validation.
+                                  # "fixed"       -> +RALLY_THRESHOLD max-gain in FORWARD_WINDOW days
                                   # "vol_adjusted"-> target scaled to the stock's own trailing
                                   #                  volatility, so calm & wild names are judged
                                   #                  on comparable moves (removes the vol/tech tilt)
     "VOL_TARGET_K":     2.5,      # vol_adjusted target = max(RALLY_THRESHOLD, K · σ_fwd),
                                   #   σ_fwd = trailing daily vol × sqrt(FORWARD_WINDOW)
     "MAX_PER_SECTOR":   None,     # None -> no cap (keep tilt); e.g. 2 -> ≤2 picks per sector
+
+    # ── Probability calibration + data-noise reduction ─────────────────────────
+    # Each flag was validated one-at-a-time in the walk-forward (win rate / expectancy
+    # + per-horizon Brier / mean-pred-vs-actual). Defaults reflect what actually
+    # improved out-of-sample. Headline finding: sample-weighting + triple-barrier
+    # labels calibrate the probabilities better as a byproduct (90d pred/act 61/50 ->
+    # 46/44) than the explicit isotonic/sigmoid calibrator, which overfits the
+    # data-starved long horizons — so CALIBRATE defaults OFF.
+    "CALIBRATE":            False,     # Explicit isotonic/sigmoid calibrator (overfits long horizons)
+    "CALIBRATION_METHOD":   "isotonic",  # "isotonic" | "sigmoid"
+    "CALIBRATION_HOLDOUT":  0.25,      # Fraction of (time-ordered) train reserved for the calibrator
+    "CALIBRATION_MIN":      250,       # Skip calibration if the holdout has fewer rows than this
+    "CLEAN_OHLCV":          True,      # Reject bad candles (bad OHLC, high<low, zero-vol, spikes) — kept
+    "BAD_TICK_PCT":         0.5,       # Single-bar spike-and-revert threshold vs local median
+    "SAMPLE_WEIGHTING":     True,      # Average-uniqueness weights for overlapping labels — clear win
+    "CROSS_SECTIONAL_NORM": None,      # None | "rank" | "zscore" — neutral in validation, left off
 }
 
 # Broad discovery universe: the S&P 500 constituents, backfilled through the eToro

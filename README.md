@@ -723,6 +723,45 @@ To add a new entry: prepend a new `### vX.Y` block immediately below this line.
 
 ---
 
+### v2.4 — Probability Calibration Study + Data-Noise Reduction
+
+**Date:** 2026-07-09
+
+Goal: make the horizon probabilities (which drive the growth **Window**) trustworthy, and
+cut noise in the data feeding the model. Every change was flag-gated and **validated
+one-at-a-time in the walk-forward** (win rate / expectancy + per-horizon Brier and
+mean-pred-vs-actual); only what improved out-of-sample was kept on.
+
+**Headline finding:** the explicit probability calibrator (isotonic/sigmoid on a
+time-ordered holdout) is *not* the best tool here — it improves the data-rich short
+horizons but **overfits the data-starved long horizons** (180d Brier 0.31 → 0.37).
+**Sample-uniqueness weighting + triple-barrier labels calibrate better as a byproduct**:
+the overconfident 90d model went from **pred 61% / actual 50%** to **46% / 44%**, with the
+best win rate/expectancy of any configuration. So the goal (trustworthy probabilities) was
+met — via the method the backtest proved, not the textbook calibrator.
+
+Kept ON (validated wins):
+- **Sample-uniqueness weighting** (`SAMPLE_WEIGHTING`) — López de Prado average-uniqueness
+  weights down-weight autocorrelated overlapping forward labels. Improved Brier at every
+  horizon (90d 0.33 → 0.26) with flat win rate. `_avg_uniqueness_weights`, `w_h{N}` panel
+  columns, passed to XGBoost `sample_weight`.
+- **Triple-barrier labels** (`LABEL_MODE="triple_barrier"`) — train on "+TAKE_PROFIT hit
+  **before** −STOP_LOSS within the horizon", matching the backtest's exit logic. Best win
+  rate (46.5% → 49.0%) and expectancy; probabilities are now genuinely P(target-before-stop).
+  `make_triple_barrier_labels`.
+- **Input data hygiene** (`CLEAN_OHLCV`) — `_clean_ohlcv` in `load_ohlcv` drops non-positive
+  O/H/L/C, `high<low`/inconsistent bars, zero-volume days, and single-bar spike-and-revert
+  ticks (deviation vs a robust centered 5-day median; sustained real moves are kept).
+
+Available but defaulted OFF (validation didn't justify them):
+- **Explicit calibration** (`CALIBRATE`, `CALIBRATION_METHOD` isotonic|sigmoid,
+  `CALIBRATION_HOLDOUT`, `CALIBRATION_MIN`) — implemented in `PreBreakoutScorer` (time-ordered
+  holdout, no lookahead); overfits long horizons once weighting is on.
+- **Cross-sectional feature normalization** (`CROSS_SECTIONAL_NORM` rank|zscore) — per-date
+  rank/z-score of continuous features; neutral in validation.
+
+---
+
 ### v2.3 — Concurrency Lock + Daily Position Sync
 
 **Date:** 2026-07-08

@@ -245,8 +245,35 @@ def load_ohlcv(ticker: str, limit: int | None = None) -> pd.DataFrame:
     for c in ("open", "high", "low", "close", "volume"):
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df = df.dropna(subset=["close"])
+    if SCREEN.get("CLEAN_OHLCV"):
+        df = _clean_ohlcv(df)
     if limit:
         df = df.tail(limit)
+    return df
+
+
+def _clean_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Drop obviously-bad candles so downstream features aren't computed on garbage:
+    non-positive O/H/L/C, inconsistent bars (high<low, or high/low outside the
+    open-close range), zero-volume days, and single-bar spike-and-revert ticks
+    (close deviating > BAD_TICK_PCT from the centered 5-day median, which is robust
+    to the spike itself — so sustained real moves are kept, isolated spikes dropped).
+    """
+    if df.empty:
+        return df
+    o, h, l, c, v = df["open"], df["high"], df["low"], df["close"], df["volume"]
+    good = (o > 0) & (h > 0) & (l > 0) & (c > 0) & (v > 0)
+    hi_oc = np.maximum(o, c)
+    lo_oc = np.minimum(o, c)
+    good &= (h >= l) & (h >= hi_oc) & (l <= lo_oc)
+    df = df[good.fillna(False)]
+
+    pct = float(SCREEN.get("BAD_TICK_PCT", 0.5) or 0)
+    if pct > 0 and len(df) >= 5:
+        med = df["close"].rolling(5, center=True, min_periods=3).median()
+        dev = (df["close"] / med - 1).abs()
+        df = df[~(dev > pct).fillna(False)]
     return df
 
 
@@ -533,19 +560,97 @@ def horizon_label_col(h: int) -> str:
     return f"label_h{h}"
 
 
+def horizon_weight_col(h: int) -> str:
+    """Column name for the sample weight at horizon `h` trading days."""
+    return f"w_h{h}"
+
+
+def make_triple_barrier_labels(df: pd.DataFrame, forward_window: int,
+                               target: float | None = None,
+                               stop: float | None = None):
+    """
+    Triple-barrier label matching the backtest's exit logic: 1 if +`target` is
+    touched BEFORE −`stop` within `forward_window` bars, else 0 (stop-first or
+    timeout). Stop assumed first on an ambiguous bar (conservative, like
+    `simulate_trade`). Returns (labels Series, ends ndarray) where ends[i] is the
+    index of the bar the outcome resolved on (barrier touch or window end) — used
+    for uniqueness weighting. Incomplete windows -> NaN label.
+    """
+    target = target if target is not None else SCREEN["TAKE_PROFIT"]
+    stop = stop if stop is not None else SCREEN["STOP_LOSS"]
+    fw = forward_window
+    n = len(df)
+    cl, hi, lo = df["close"].to_numpy(), df["high"].to_numpy(), df["low"].to_numpy()
+    labels = np.full(n, np.nan)
+    ends = np.minimum(np.arange(n) + fw, n - 1)
+    for i in range(n):
+        j = i + fw
+        if j >= n:
+            break  # incomplete forward window -> leave NaN
+        up, dn = cl[i] * (1 + target), cl[i] * (1 - stop)
+        outcome, end = 0.0, j
+        for k in range(i + 1, j + 1):
+            if lo[k] <= dn:            # stop first (conservative)
+                outcome, end = 0.0, k
+                break
+            if hi[k] >= up:
+                outcome, end = 1.0, k
+                break
+        labels[i], ends[i] = outcome, end
+    return pd.Series(labels, index=df.index, name="label"), ends
+
+
+def _avg_uniqueness_weights(n: int, ends: np.ndarray, valid: np.ndarray) -> np.ndarray:
+    """
+    López de Prado average-uniqueness weights. Each label i "occupies" bars
+    (i, ends[i]]; concurrency c_t = how many labels occupy bar t; the weight of
+    label i is the mean of 1/c over its span. Down-weights heavily-overlapping
+    (autocorrelated) labels. Fully vectorised. Invalid rows -> NaN.
+    """
+    diff = np.zeros(n + 2)
+    idx = np.where(valid)[0]
+    s = idx + 1                       # first occupied bar
+    e = ends[idx]                     # last occupied bar
+    ok = s <= e
+    np.add.at(diff, s[ok], 1)
+    np.add.at(diff, e[ok] + 1, -1)
+    c = np.cumsum(diff[:n])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        inv = np.where(c > 0, 1.0 / c, 0.0)
+    prefix = np.concatenate([[0.0], np.cumsum(inv)])   # prefix[t] = sum inv[:t]
+    w = np.full(n, np.nan)
+    span = ends - np.arange(n)
+    good = valid & (span > 0)
+    gi = np.where(good)[0]
+    w[gi] = (prefix[ends[gi] + 1] - prefix[gi + 1]) / span[gi]
+    return w
+
+
 def make_multi_labels(df: pd.DataFrame,
                       horizons: list[int] | None = None) -> pd.DataFrame:
     """
-    One forward label per horizon: for each horizon N, label = 1 if the max gain
-    over the next N trading days reaches the target (see `make_labels`). Returns a
-    DataFrame indexed like `df` with one column per horizon (label_h10, label_h30,
-    …). Longer horizons leave more recent rows NaN (window not yet closed), so each
-    horizon's classifier simply trains on its own matured rows.
+    Per horizon N: a forward label (`label_h{N}`) and a sample weight (`w_h{N}`).
+
+    Label mode is `SCREEN["LABEL_MODE"]`: "fixed"/"vol_adjusted" use the forward-max
+    rule (`make_labels`); "triple_barrier" uses the stop/target/time rule matching
+    the backtest. Weights are average-uniqueness over each label's forward span,
+    so overlapping (autocorrelated) labels are down-weighted. Longer horizons leave
+    more recent rows NaN (window not yet closed).
     """
     horizons = horizons if horizons is not None else SCREEN["HORIZONS"]
+    mode = SCREEN.get("LABEL_MODE", "fixed")
+    n = len(df)
     out = {}
     for h in horizons:
-        out[horizon_label_col(h)] = make_labels(df, forward_window=h)
+        if mode == "triple_barrier":
+            labels, ends = make_triple_barrier_labels(df, forward_window=h)
+        else:
+            labels = make_labels(df, forward_window=h)
+            ends = np.minimum(np.arange(n) + h, n - 1)   # forward-max uses the full window
+        out[horizon_label_col(h)] = labels
+        valid = ~np.isnan(labels.to_numpy())
+        out[horizon_weight_col(h)] = pd.Series(
+            _avg_uniqueness_weights(n, ends, valid), index=df.index)
     return pd.DataFrame(out, index=df.index)
 
 
@@ -584,6 +689,33 @@ def build_panel(universe: list[str], history_days: int | None = None) -> pd.Data
 
     panel = pd.concat(frames, ignore_index=True)
     panel = panel.sort_values(["date", "ticker"]).reset_index(drop=True)
+    panel = _cross_sectional_normalize(panel)
+    return panel
+
+
+# Continuous features normalized cross-sectionally; bounded/already-relative
+# features (0/1 stack, 0–1 range position, 0–100 RSI) are left as-is.
+_NORM_FEATURES = [c for c in FEATURE_COLS if c not in ("ma_stack", "pos_252", "rsi")]
+
+
+def _cross_sectional_normalize(panel: pd.DataFrame) -> pd.DataFrame:
+    """
+    Per-date cross-sectional normalization of the continuous features, so a name's
+    setup is judged relative to that day's universe rather than in absolute terms —
+    stripping market-wide moves. Same-date only, so no lookahead. Controlled by
+    SCREEN["CROSS_SECTIONAL_NORM"] ("rank" | "zscore" | None).
+    """
+    mode = SCREEN.get("CROSS_SECTIONAL_NORM")
+    if not mode or panel.empty:
+        return panel
+    cols = [c for c in _NORM_FEATURES if c in panel.columns]
+    g = panel.groupby("date")[cols]
+    if mode == "rank":
+        panel[cols] = g.rank(pct=True)
+    elif mode == "zscore":
+        mean = g.transform("mean")
+        std = g.transform("std").replace(0.0, np.nan)
+        panel[cols] = (panel[cols] - mean) / std
     return panel
 
 
@@ -629,11 +761,13 @@ class PreBreakoutScorer:
                 l2_regularization=1.0,
             )
 
-    def fit(self, train: pd.DataFrame, label_col: str = "label") -> "PreBreakoutScorer":
+    def fit(self, train: pd.DataFrame, label_col: str = "label",
+            weight_col: str | None = None) -> "PreBreakoutScorer":
         """Fit on rows with a defined label. `train` must contain FEATURE_COLS +
-        `label_col`. `label_col` lets one scorer class serve any forward horizon."""
+        `label_col` (+ `date` for calibration, + `weight_col` if sample-weighting).
+        `label_col` lets one scorer class serve any forward horizon."""
+        self._calibrator = None
         data = train.dropna(subset=self._features + [label_col])
-        X = data[self._features].to_numpy(dtype=float)
         y = data[label_col].to_numpy(dtype=int)
         self.model = self._make_model()
         # Degenerate case (single class in the training window): fall back to a
@@ -643,18 +777,69 @@ class PreBreakoutScorer:
             self._base_rate = float(y.mean()) if len(y) else 0.0
             self._n_train = len(y)
             return self
-        self.model.fit(X, y)
+
+        sw = (data[weight_col].to_numpy(dtype=float)
+              if (weight_col and weight_col in data.columns) else None)
+
+        # ── Optional probability calibration on a time-ordered holdout ──────────
+        # Older rows train the model; the newest CALIBRATION_HOLDOUT fraction fits
+        # the calibrator — strictly within the training window, so no lookahead.
+        if SCREEN.get("CALIBRATE") and "date" in data.columns:
+            data = data.sort_values("date")
+            X_all = data[self._features].to_numpy(dtype=float)
+            y_all = data[label_col].to_numpy(dtype=int)
+            sw_all = (data[weight_col].to_numpy(dtype=float)
+                      if (weight_col and weight_col in data.columns) else None)
+            n_cal = int(len(data) * float(SCREEN.get("CALIBRATION_HOLDOUT", 0.25)))
+            cut = len(data) - n_cal
+            yb, yc = y_all[:cut], y_all[cut:]
+            if (n_cal >= int(SCREEN.get("CALIBRATION_MIN", 250))
+                    and len(np.unique(yb)) == 2 and len(np.unique(yc)) == 2):
+                self.model.fit(X_all[:cut], yb,
+                               sample_weight=sw_all[:cut] if sw_all is not None else None)
+                raw_c = self.model.predict_proba(X_all[cut:])[:, 1]
+                self._fit_calibrator(raw_c, yc)
+                self._base_rate = float(y_all.mean())
+                self._n_train = cut
+                return self
+
+        # No calibration (disabled, too little data, or single-class holdout).
+        X = data[self._features].to_numpy(dtype=float)
+        y = data[label_col].to_numpy(dtype=int)
+        self.model.fit(X, y, sample_weight=sw)
         self._base_rate = float(y.mean())
         self._n_train = len(y)
         return self
+
+    def _fit_calibrator(self, raw: np.ndarray, y: np.ndarray) -> None:
+        """Fit a 1-D calibrator mapping raw P(positive) -> calibrated probability."""
+        method = SCREEN.get("CALIBRATION_METHOD", "isotonic")
+        if method == "sigmoid":
+            from sklearn.linear_model import LogisticRegression
+            cal = LogisticRegression()
+            cal.fit(raw.reshape(-1, 1), y)
+            self._calibrator = ("sigmoid", cal)
+        else:
+            from sklearn.isotonic import IsotonicRegression
+            cal = IsotonicRegression(out_of_bounds="clip")
+            cal.fit(raw, y)
+            self._calibrator = ("isotonic", cal)
+
+    def _apply_calibrator(self, raw: np.ndarray) -> np.ndarray:
+        kind, cal = self._calibrator
+        if kind == "sigmoid":
+            return cal.predict_proba(raw.reshape(-1, 1))[:, 1]
+        return cal.predict(raw)
 
     def score(self, feats: pd.DataFrame) -> np.ndarray:
         """Return P(positive) for each row of `feats` (NaN features -> base rate)."""
         X = feats[self._features].to_numpy(dtype=float)
         if self.model is None:
             return np.full(len(feats), getattr(self, "_base_rate", 0.0))
-        proba = self.model.predict_proba(np.nan_to_num(X, nan=np.nan))
-        return proba[:, 1]
+        raw = self.model.predict_proba(np.nan_to_num(X, nan=np.nan))[:, 1]
+        if getattr(self, "_calibrator", None) is not None:
+            return self._apply_calibrator(raw)
+        return raw
 
     def feature_importance(self) -> pd.Series:
         if self.model is None:
@@ -699,9 +884,12 @@ class MultiHorizonScorer:
         n_h = max(1, len(self.horizons))
         per_model_jobs = max(1, (os.cpu_count() or 4) // n_h)
 
+        use_weights = SCREEN.get("SAMPLE_WEIGHTING")
+
         def _fit_one(h: int):
             scorer = PreBreakoutScorer(n_jobs=per_model_jobs)
-            return h, scorer.fit(train, label_col=horizon_label_col(h))
+            wcol = horizon_weight_col(h) if use_weights else None
+            return h, scorer.fit(train, label_col=horizon_label_col(h), weight_col=wcol)
 
         try:
             with ThreadPoolExecutor(max_workers=n_h) as ex:
