@@ -601,7 +601,7 @@ Value-weighting ensures a large $50k position held for 2 years contributes more 
 
 ## 11. Scheduler
 
-`scheduler.py` runs an APScheduler `BlockingScheduler` daemon with **5 jobs**. Times in Berlin unless noted.
+`scheduler.py` runs an APScheduler `BlockingScheduler` daemon with **6 jobs**. Times in Berlin unless noted.
 
 | # | Job | Cron | What it does | Misfire grace |
 |---|-----|------|--------------|---------------|
@@ -610,6 +610,9 @@ Value-weighting ensures a large $50k position held for 2 years contributes more 
 | 3 | Market close | 22:00 Mon–Fri | Full Sheets export | 1800 s |
 | 4 | Daily OHLCV refresh | 23:00 daily | Position sync + OHLCV refresh + full Sheets export | 3600 s |
 | 5 | NY midnight | 00:00 `America/New_York` daily (= 06:00 Berlin) | Full Sheets export — second daily push so the dashboard reflects the latest data at the start of each NY trading day. Provides natural redundancy if job 4 fails. | 1800 s |
+| 6 | Daily position sync | 09:00 daily | eToro → `positions.json` sync, so holdings are fresh at the start of the day independent of the export runs. | 3600 s |
+
+**Concurrency lock.** Every DB-writing job holds an advisory file lock (`pipeline_lock.py`, `fcntl.flock` on `market_data.db.lock`). A manual CLI command that writes the database (`export` / `backfill` / `refresh` / `sync-positions` / `screener-backfill` / `update-macro` / `import-statement`) acquires the same lock and **aborts with a clear message if the scheduler is mid-write** (and vice-versa — a scheduled job skips to its next run if a manual command holds it). This structurally prevents the concurrent-writer race that can corrupt the SQLite file. The kernel releases the lock automatically if a process dies, so a crash never leaves a stale lock.
 
 **Run as a daemon:** `python main.py scheduler`. The process is started on this Mac via the `com.trading.scheduler` LaunchAgent (`~/Library/LaunchAgents/com.trading.scheduler.plist`), which auto-respawns it on crash or kill.
 
@@ -714,6 +717,30 @@ Key config knobs live in `SCREEN` (`config.py`): `HORIZONS`, `PRIMARY_HORIZON`,
 
 Each entry records: date, version, what changed, and why.
 To add a new entry: prepend a new `### vX.Y` block immediately below this line.
+
+---
+
+### v2.3 — Concurrency Lock + Daily Position Sync
+
+**Date:** 2026-07-08
+
+#### Pipeline write-lock (`pipeline_lock.py`, new)
+
+- Advisory `fcntl.flock` on `market_data.db.lock` serializing every database writer.
+- **Root cause it fixes:** a manual `export`/`backfill` running *concurrently* with the
+  always-on scheduler daemon (two SQLite writers), then killed mid-transaction, can
+  truncate/corrupt the database.
+- Manual write commands (`export`, `backfill`, `refresh`, `sync-positions`,
+  `screener-backfill`, `update-macro`, `import-statement`) now acquire the lock and
+  **abort with a clear message** if the scheduler is mid-write. Scheduler jobs acquire
+  it too and **skip to their next run** if a manual command holds it.
+- The kernel frees the lock automatically on process death — a crash never leaves a
+  stale lock. `main.py` dispatch refactored into `_dispatch()` wrapped by the lock.
+
+#### Scheduler — 6th job: daily position sync
+
+- New job: `sync_positions()` at **09:00 Berlin daily**, so `positions.json` is fresh at
+  the start of the day independent of the market-hours export runs. Also lock-protected.
 
 ---
 

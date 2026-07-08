@@ -43,6 +43,29 @@ def main():
     args    = sys.argv[1:]
     command = args[0] if args else "help"
 
+    # Database-writing commands are serialized against the scheduler daemon via an
+    # advisory file lock, so a manual run can never collide with a scheduled one
+    # (the concurrent-writer race that can corrupt the SQLite file).
+    if command in _WRITE_COMMANDS:
+        from pipeline_lock import pipeline_lock, PipelineBusyError
+        try:
+            with pipeline_lock(label=command):
+                _dispatch(command, args)
+        except PipelineBusyError as exc:
+            log.error("%s", exc)
+            sys.exit(1)
+    else:
+        _dispatch(command, args)
+
+
+# Commands that write to market_data.db / positions.json (must hold the lock).
+_WRITE_COMMANDS = {
+    "backfill", "refresh", "sync-positions", "export",
+    "screener-backfill", "update-macro", "import-statement",
+}
+
+
+def _dispatch(command, args):
     if command == "backfill":
         from pipeline import backfill
         tickers = args[1:] or None

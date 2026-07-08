@@ -11,6 +11,11 @@ The Screener tab (ranking + backtest + charts) is refreshed only at open and clo
 hourly and midnight cadences (see run_export's SCREENER_TRIGGERS in sheets_exporter.py).
   4. Daily OHLCV  — 23:00 Berlin  daily    → position sync + candle refresh + full export
   5. NY midnight  — 00:00 New York daily   → full export
+  6. Daily sync   — 09:00 Berlin  daily    → eToro position sync (positions.json)
+
+Every DB-writing job holds an advisory file lock (pipeline_lock.py), so a manual
+CLI command (export/backfill/…) and a scheduled job can never write the database
+concurrently — the failure mode that can corrupt SQLite.
 
 Run this process and leave it running — it handles itself.
 Use Ctrl+C or send SIGTERM to shut down gracefully.
@@ -28,8 +33,29 @@ from config import (
     GOOGLE_SHEET_ID,
 )
 from pipeline import refresh, sync_positions
+from pipeline_lock import pipeline_lock, PipelineBusyError
 
 log = logging.getLogger(__name__)
+
+
+def _locked(label: str, fn):
+    """Run a scheduled job while holding the DB write-lock. If a manual pipeline
+    command (or another job) holds it, skip this run rather than risk a concurrent
+    write — the next scheduled fire will catch up."""
+    try:
+        with pipeline_lock(label=f"scheduler:{label}"):
+            fn()
+    except PipelineBusyError:
+        log.warning("Skipping scheduled '%s' — another pipeline operation is "
+                    "running; will run at the next scheduled time.", label)
+
+
+def _sync_positions_job():
+    """Standalone daily position sync (broker → positions.json)."""
+    try:
+        sync_positions()
+    except Exception:
+        log.exception("Daily position sync failed")
 
 
 def _daily_refresh():
@@ -60,7 +86,7 @@ def run_scheduler():
 
     # ── 1. Market open — 15:30 Berlin (09:30 NY) — FULL export ───────────────
     scheduler.add_job(
-        func=lambda: _sheets_export("market_open"),
+        func=lambda: _locked("market_open", lambda: _sheets_export("market_open")),
         trigger=CronTrigger(
             day_of_week="mon-fri",
             hour=15, minute=30,
@@ -74,7 +100,7 @@ def run_scheduler():
 
     # ── 2. Hourly — 16:30–21:30 Berlin — LIVE-ONLY export ────────────────────
     scheduler.add_job(
-        func=lambda: _sheets_export("hourly"),
+        func=lambda: _locked("hourly", lambda: _sheets_export("hourly")),
         trigger=CronTrigger(
             day_of_week="mon-fri",
             hour="16-21", minute=30,
@@ -88,7 +114,7 @@ def run_scheduler():
 
     # ── 3. Market close — 22:00 Berlin (16:00 NY) — FULL export ──────────────
     scheduler.add_job(
-        func=lambda: _sheets_export("market_close"),
+        func=lambda: _locked("market_close", lambda: _sheets_export("market_close")),
         trigger=CronTrigger(
             day_of_week="mon-fri",
             hour=22, minute=0,
@@ -102,7 +128,7 @@ def run_scheduler():
 
     # ── 4. Position sync + OHLCV refresh — 23:00 Berlin — FULL export ─────────
     scheduler.add_job(
-        func=_daily_refresh,
+        func=lambda: _locked("daily_refresh", _daily_refresh),
         trigger=CronTrigger(
             hour=SCHEDULER_HOUR,
             minute=SCHEDULER_MINUTE,
@@ -116,7 +142,7 @@ def run_scheduler():
 
     # ── 5. NY midnight — 00:00 America/New_York — FULL export ────────────────
     scheduler.add_job(
-        func=lambda: _sheets_export("ny_midnight"),
+        func=lambda: _locked("ny_midnight", lambda: _sheets_export("ny_midnight")),
         trigger=CronTrigger(
             hour=0, minute=0,
             timezone="America/New_York",
@@ -125,6 +151,19 @@ def run_scheduler():
         name="Google Sheets — NY midnight (full)",
         replace_existing=True,
         misfire_grace_time=1800,
+    )
+
+    # ── 6. Daily position sync — 09:00 Berlin daily ──────────────────────────
+    scheduler.add_job(
+        func=lambda: _locked("sync_positions", _sync_positions_job),
+        trigger=CronTrigger(
+            hour=9, minute=0,
+            timezone=SCHEDULER_TZ,
+        ),
+        id="daily_sync_positions",
+        name="eToro daily position sync",
+        replace_existing=True,
+        misfire_grace_time=3600,
     )
 
     # ── Graceful shutdown on SIGTERM / Ctrl+C ─────────────────────────────────
@@ -138,13 +177,16 @@ def run_scheduler():
 
     log.info(
         "Scheduler started.\n"
+        "  • Daily sync   (positions)    : 09:00 %s (daily)\n"
         "  • Market open  (full export)  : 15:30 %s (Mon–Fri)\n"
         "  • Hourly       (live-only)    : 16:30–21:30 %s (Mon–Fri)\n"
         "  • Market close (full export)  : 22:00 %s (Mon–Fri)\n"
         "  • Daily OHLCV  (full export)  : %02d:%02d %s\n"
         "  • NY midnight  (full export)  : 00:00 America/New_York (daily)\n"
+        "All DB-writing jobs hold an advisory lock — a manual pipeline command and a\n"
+        "scheduled job can never write the database at the same time.\n"
         "Press Ctrl+C to stop.",
-        SCHEDULER_TZ, SCHEDULER_TZ, SCHEDULER_TZ,
+        SCHEDULER_TZ, SCHEDULER_TZ, SCHEDULER_TZ, SCHEDULER_TZ,
         SCHEDULER_HOUR, SCHEDULER_MINUTE, SCHEDULER_TZ,
     )
 
