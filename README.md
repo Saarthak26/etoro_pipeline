@@ -751,6 +751,10 @@ intraday prices on every scheduled run.
   Screener tab and in the CLI backtest. This is the honest test of the timing claim.
 - Deliberately **not** doing cross-industry price imputation for young names (would inject
   fabricated data and corrupt the backtest); short-history names are filtered out instead.
+- **Parallel training:** the four horizon classifiers are independent, so
+  `MultiHorizonScorer.fit` trains them concurrently (`ThreadPoolExecutor`, xgboost
+  releases the GIL) with the core budget split across horizons — ~2.9× faster than
+  sequential, cancelling most of the 4-classifier cost. Falls back to sequential on error.
 - New config (`SCREEN`): `HORIZONS`, `PRIMARY_HORIZON`, `WINDOW_PROB_THRESHOLD`.
 
 #### Overview tab — live intraday prices (bug fix)

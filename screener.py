@@ -599,10 +599,11 @@ class PreBreakoutScorer:
     .feature_importance() exposes the drivers.
     """
 
-    def __init__(self):
+    def __init__(self, n_jobs: int = 4):
         self.model = None
         self.backend = None
         self._features = list(FEATURE_COLS)
+        self.n_jobs = n_jobs
 
     def _make_model(self):
         try:
@@ -617,7 +618,7 @@ class PreBreakoutScorer:
                 min_child_weight=5,
                 eval_metric="logloss",
                 tree_method="hist",
-                n_jobs=4,
+                n_jobs=self.n_jobs,
             )
         except Exception as exc:  # pragma: no cover - environment dependent
             from sklearn.ensemble import HistGradientBoostingClassifier
@@ -688,8 +689,29 @@ class MultiHorizonScorer:
         self.models: dict[int, PreBreakoutScorer] = {}
 
     def fit(self, train: pd.DataFrame) -> "MultiHorizonScorer":
-        for h in self.horizons:
-            self.models[h] = PreBreakoutScorer().fit(train, label_col=horizon_label_col(h))
+        # The horizons are independent models, so train them concurrently. xgboost's
+        # fit releases the GIL, so threads give near-linear speedup; we split the core
+        # budget across horizons (rather than each grabbing all cores) to avoid
+        # oversubscription. Falls back to sequential if anything goes wrong.
+        import os
+        from concurrent.futures import ThreadPoolExecutor
+
+        n_h = max(1, len(self.horizons))
+        per_model_jobs = max(1, (os.cpu_count() or 4) // n_h)
+
+        def _fit_one(h: int):
+            scorer = PreBreakoutScorer(n_jobs=per_model_jobs)
+            return h, scorer.fit(train, label_col=horizon_label_col(h))
+
+        try:
+            with ThreadPoolExecutor(max_workers=n_h) as ex:
+                for h, model in ex.map(_fit_one, self.horizons):
+                    self.models[h] = model
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning("Parallel horizon fit failed (%s); falling back to sequential", exc)
+            self.models = {}
+            for h in self.horizons:
+                _, self.models[h] = _fit_one(h)
         return self
 
     @property
