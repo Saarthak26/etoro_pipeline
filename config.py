@@ -8,8 +8,8 @@ import os
 
 # ── API credentials ──────────────────────────────────────────────────────────
 # Load from environment variables (recommended) or paste directly for testing.
-ETORO_API_KEY  = os.getenv("ETORO_API_KEY",  "sdgdskldFPLGfjHn1421dgnlxdGTbngdflg6290bRjslfihsjhSDsdgGHH25hjf")
-ETORO_USER_KEY = os.getenv("ETORO_USER_KEY", "eyJjaSI6IjYwY2FiYjBiLTU1OTctNDQ4NS04ZjYzLTdlOWUwNTZlMGJiOCIsImVhbiI6IlVucmVnaXN0ZXJlZEFwcGxpY2F0aW9uIiwiZWsiOiJNNW4zSW9XS0NrQjE5QlpHcVFOU1ZjZUJMMTBLcDhrQmVUclc5YnQwZ0FyNllVLlktZFZXdTBLVkhKb0tsZ3k2T1E0dTd1cWRwdmRlZ25jbExESDFITkJSSzRaNTVIdjQ1UmpKVzlYSDBnWV8ifQ__")
+ETORO_API_KEY  = os.getenv("ETORO_API_KEY",  "")
+ETORO_USER_KEY = os.getenv("ETORO_USER_KEY", "")
 
 BASE_URL = "https://public-api.etoro.com/api/v1"
 
